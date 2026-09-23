@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+@theme inline {
+  /* Fonts */
+  --font-sans: var(--font-space-grotesk), sans-serif;
+  --font-mono: var(--font-jetbrains-mono), monospace;
+
+  /* Custom Colors */
+  --color-void: #000000;
+  --color-emerald-400: #14f195;
+  --color-slate-900: #0f172a;
+}
+
+/* Base styles for the dark theme */
+body {
+  background-color: var(--color-void);
+  color: #ffffff;
+}
