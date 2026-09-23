@@ -1,0 +1,43 @@
+{
+  "programId": "E4t7DUwrLKgxpGb88686DtqrRqnHd5GCKE3ASwR8SCwi",
+  "config": "H5j43kzYm6po7mtSkpUv83VKLAvNwM4hC7hxoaTGFTQo",
+  "quoteMint": "9oN4S7Qy2QivXpkMQ2Ry8vk4sBDthzbYxakMHMxvtvcS",
+  "treasury": "A93CoyPWPrbRFpLYBjrCDhmw4ArRCGwTccr2XkA1Vyhn",
+  "admin": "EsGwoTWAdTsjPRQhhbquq1qRthCJBr7RAxzGM5t28mBi",
+  "symbolByMint": {
+    "9oN4S7Qy2QivXpkMQ2Ry8vk4sBDthzbYxakMHMxvtvcS": "USDC",
+    "26KFBPj2b9KN6MNj2qsfL25aCy2HYJpk3N7yD47PxGex": "NVDA",
+    "63D4DnJzvqYWLiUu61rzBi2DmSxct991nPhtB3zZPjH7": "MSFT",
+    "4VFHoX5EuBpaCNDJoXcuDQSfEdW6QYz3ScSes3LHmHQz": "AAPL",
+    "GaByMrAdYprfXdPahuuJe5ZoHYyL7n9QzJJjEppuK5bm": "AITITANS"
+  },
+  "mints": [
+    {
+      "symbol": "USDC",
+      "address": "9oN4S7Qy2QivXpkMQ2Ry8vk4sBDthzbYxakMHMxvtvcS",
+      "decimals": 6
+    },
+    {
+      "symbol": "NVDA",
+      "address": "26KFBPj2b9KN6MNj2qsfL25aCy2HYJpk3N7yD47PxGex",
+      "decimals": 6
+    },
+    {
+      "symbol": "MSFT",
+      "address": "63D4DnJzvqYWLiUu61rzBi2DmSxct991nPhtB3zZPjH7",
+      "decimals": 6
+    },
+    {
+      "symbol": "AAPL",
+      "address": "4VFHoX5EuBpaCNDJoXcuDQSfEdW6QYz3ScSes3LHmHQz",
+      "decimals": 6
+    }
+  ],
+  "baskets": [
+    {
+      "name": "AI Titans",
+      "basket": "6wECz2LDFB2ANjFVhaxrYjZR17nt9Px8w49jDnJroXkE",
+      "shareMint": "GaByMrAdYprfXdPahuuJe5ZoHYyL7n9QzJJjEppuK5bm"
+    }
+  ]
+}
