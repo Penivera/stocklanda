@@ -33,7 +33,7 @@ export default function Launchpad() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label className="block text-slate-400 font-mono text-xs mb-2">Select Asset</label>
-                                <select className="w-full bg-void border border-slate-700 rounded-lg px-4 py-3 font-mono text-sm text-white focus:outline-none focus:border-emerald-400 cursor-pointer">
+                                <select className="w-full bg-void border border-slate-700 rounded-lg px-4 py-3 font-mono text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-400 cursor-pointer">
                                     <option value="forge" className="bg-slate-900 text-white">StockForge Gov ($FORGE)</option>
                                     <option value="pre" className="bg-slate-900 text-white">PreStocks Mock ($PRE)</option>
                                 </select>

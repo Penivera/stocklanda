@@ -10,7 +10,7 @@ export default function MobileNav() {
   const navItems = [
     { name: "Home", href: "/", icon: LayoutDashboard },
     { name: "Options", href: "/options", icon: ArrowRightLeft },
-    { name: "Basket", href: "/basket", icon: PieChart },
+    { name: "Basket ETFs", href: "/basket", icon: PieChart },
     { name: "Launchpad", href: "/launchpad", icon: Rocket },
   ];
 

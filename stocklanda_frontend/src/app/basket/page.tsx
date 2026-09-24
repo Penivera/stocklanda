@@ -1,176 +1,483 @@
 "use client";
 
-import { useState } from "react";
-
-// Mock metadata for the pre-IPO assets available for the basket
-const availableAssets = [
-  { id: "SX", name: "SpaceX", tier: "PRIVATE • Series X", price: 185.00 },
-  { id: "OA", name: "OpenAI", tier: "PRIVATE • Series D", price: 210.00 },
-  { id: "AN", name: "Anthropic", tier: "PRIVATE • Series E", price: 320.00 },
-];
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import BN from "bn.js";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
+import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddressSync,
+} from "@solana/spl-token";
+import { useEffect, useMemo, useState } from "react";
+import {
+  basketNav,
+  useBaskets,
+  useConfig,
+  usePriceMap,
+  useProgram,
+  useRegistry,
+} from "@/lib/hooks";
+import { basketMintPda, basketPda, configPda } from "@/lib/pda";
+import { ensureAta } from "@/lib/tx";
+import { shortKey, token, usd } from "@/lib/format";
 
 export default function BasketComposer() {
-  // Initial state matches the 100% distribution from the wireframe
-  const [allocations, setAllocations] = useState<Record<string, number>>({
-    SX: 40,
-    OA: 35,
-    AN: 25,
-  });
+  // --- WEB3 ENGINE ---
+  const { connection } = useConnection();
+  const wallet = useWallet();
+  const program = useProgram();
+  const registry = useRegistry();
+  const baskets = useBaskets();
+  const prices = usePriceMap(registry, [], baskets);
+
+  // --- UI STATE ---
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [balances, setBalances] = useState<Record<string, number>>({});
+  
+  // Composer State
+  const [basketName, setBasketName] = useState("AI Titans");
+  const [allocations, setAllocations] = useState<Record<string, number>>({});
+  const [units, setUnits] = useState<Record<string, number>>({});
+
+  const tradableAssets = useMemo(
+    () => (registry?.mints ?? []).filter((m) => m.symbol !== "USDC"),
+    [registry]
+  );
+  
+  const symbolOf = (mint: string) => registry?.symbolByMint?.[mint] ?? shortKey(mint);
+
+  // Map on-chain symbols to full display names
+  const nameOf = (symbol: string) => {
+    const names: Record<string, string> = {
+      NVDA: "Nvidia Corporation",
+      MSFT: "Microsoft",
+      AAPL: "Apple Inc.",
+      SX: "SpaceX",
+      OA: "OpenAI",
+      AN: "Anthropic",
+      PRE: "PreStocks Mock"
+    };
+    return names[symbol] || symbol;
+  };
+
+  // Initialize sliders dynamically based on available PreStocks assets
+  useEffect(() => {
+    if (tradableAssets.length > 0 && Object.keys(allocations).length === 0) {
+      const initAllocs: Record<string, number> = {};
+      const initUnits: Record<string, number> = {};
+      
+      tradableAssets.forEach((m, i) => {
+        // Default to a 40/35/25 split for the first three assets, 0 for the rest
+        if (i === 0) initAllocs[m.address] = 40;
+        else if (i === 1) initAllocs[m.address] = 35;
+        else if (i === 2) initAllocs[m.address] = 25;
+        else initAllocs[m.address] = 0;
+        
+        // Default to 1 token of underlying per basket share
+        initUnits[m.address] = 1;
+      });
+      setAllocations(initAllocs);
+      setUnits(initUnits);
+    }
+  }, [tradableAssets, allocations]);
+
+  // Track user's share balances for existing baskets
+  useEffect(() => {
+    if (!wallet.publicKey || baskets.length === 0) return;
+    let active = true;
+    (async () => {
+      const entries = await Promise.all(
+        baskets.map(async (b) => {
+          const mint = b.account.shareMint as PublicKey;
+          const ata = getAssociatedTokenAddressSync(mint, wallet.publicKey!, true);
+          try {
+            const bal = await connection.getTokenAccountBalance(ata);
+            return [b.publicKey.toBase58(), bal.value.uiAmount ?? 0] as const;
+          } catch {
+            return [b.publicKey.toBase58(), 0] as const;
+          }
+        })
+      );
+      if (active) setBalances(Object.fromEntries(entries));
+    })();
+    return () => { active = false; };
+  }, [wallet.publicKey, baskets, connection, busy]);
 
   const handleSliderChange = (id: string, value: number) => {
-    setAllocations((prev) => ({
-      ...prev,
-      [id]: value,
-    }));
+    setAllocations((prev) => ({ ...prev, [id]: value }));
   };
 
   const totalAllocation = Object.values(allocations).reduce((sum, val) => sum + val, 0);
   const isValid = totalAllocation === 100;
 
-  // Mock NAV calculation based on weights and prices
-  const estimatedNAV = availableAssets.reduce((total, asset) => {
-    const weight = allocations[asset.id] || 0;
-    return total + asset.price * (weight / 100);
+  // Calculate NAV of the basket currently being composed
+  const estimatedNAV = tradableAssets.reduce((total, asset) => {
+    if (allocations[asset.address] > 0) {
+      const spot = prices[asset.address]?.usd ?? 0;
+      const amount = units[asset.address] ?? 1;
+      return total + (spot * amount);
+    }
+    return total;
   }, 0);
 
   const formatCurrency = (val: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(val);
 
+  // --- TRANSACTION RUNNERS ---
+  const run = async (key: string, fn: () => Promise<string>) => {
+    setBusy(key);
+    setMsg(null);
+    try {
+      const sig = await fn();
+      setMsg(`✓ tx: ${sig.slice(0, 8)}…`);
+    } catch (e: any) {
+      console.error(e);
+      setMsg(`✕ ${e?.message ?? "Transaction failed"}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const createBasket = async () => {
+    if (!wallet.publicKey) return;
+    await run("create", async () => {
+      const creator = wallet.publicKey!;
+      const nonce = Date.now() % 1_000_000_000;
+      const basket = basketPda(creator, nonce);
+      const shareMint = basketMintPda(basket);
+      
+      // Map user slider percentages to Anchor format
+      const components = Object.entries(allocations)
+        .filter(([_, weight]) => weight > 0)
+        .map(([mint, weight]) => ({
+          mint: new PublicKey(mint),
+          amountPerUnit: new BN(Math.round((units[mint] || 1) * 1e6)),
+          weightBps: weight * 100, // 40% -> 4000 bps
+        }));
+
+      return program.methods
+        .createBasket(new BN(nonce), basketName, components)
+        .accounts({
+          creator,
+          config: configPda(),
+          basket,
+          shareMint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+    });
+  };
+
+  const mintShare = async (b: any, unitCount: string) => {
+    if (!wallet.publicKey) return;
+    const key = `mint-${b.publicKey.toBase58()}`;
+    await run(key, async () => {
+      const user = wallet.publicKey!;
+      const components = b.account.components;
+      const rem: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = [];
+      const ixs = [];
+      
+      for (const c of components) {
+        const cmint = c.mint as PublicKey;
+        const vault = getAssociatedTokenAddressSync(cmint, b.publicKey, true);
+        const vaultRes = await ensureAta(connection, user, b.publicKey, cmint);
+        const srcRes = await ensureAta(connection, user, user, cmint);
+        if (vaultRes.ix) ixs.push(vaultRes.ix);
+        if (srcRes.ix) ixs.push(srcRes.ix);
+        rem.push({ pubkey: cmint, isWritable: true, isSigner: false });
+        rem.push({ pubkey: vault, isWritable: true, isSigner: false });
+        rem.push({ pubkey: srcRes.address, isWritable: true, isSigner: false });
+      }
+      
+      const userShare = await ensureAta(connection, user, user, b.account.shareMint);
+      if (userShare.ix) ixs.push(userShare.ix);
+      
+      return program.methods
+        .mintBasket(new BN(Math.round(Number(unitCount) * 1e6)))
+        .accounts({
+          user,
+          basket: b.publicKey,
+          shareMint: b.account.shareMint,
+          userShare: userShare.address,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .remainingAccounts(rem)
+        .preInstructions(ixs)
+        .rpc();
+    });
+  };
+
+  const redeemShare = async (b: any, unitCount: string) => {
+    if (!wallet.publicKey) return;
+    const key = `redeem-${b.publicKey.toBase58()}`;
+    await run(key, async () => {
+      const user = wallet.publicKey!;
+      const rem: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = [];
+      const ixs = [];
+      
+      for (const c of b.account.components) {
+        const cmint = c.mint as PublicKey;
+        const vault = getAssociatedTokenAddressSync(cmint, b.publicKey, true);
+        const destRes = await ensureAta(connection, user, user, cmint);
+        if (destRes.ix) ixs.push(destRes.ix);
+        rem.push({ pubkey: cmint, isWritable: true, isSigner: false });
+        rem.push({ pubkey: vault, isWritable: true, isSigner: false });
+        rem.push({ pubkey: destRes.address, isWritable: true, isSigner: false });
+      }
+      
+      const userShare = getAssociatedTokenAddressSync(b.account.shareMint, user, true);
+      
+      return program.methods
+        .redeemBasket(new BN(Math.round(Number(unitCount) * 1e6)))
+        .accounts({
+          user,
+          basket: b.publicKey,
+          shareMint: b.account.shareMint,
+          userShare,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .remainingAccounts(rem)
+        .preInstructions(ixs)
+        .rpc();
+    });
+  };
+
   return (
-    <div className="max-w-6xl mx-auto space-y-6 md:space-y-8">
-      <div>
-        <h1 className="text-2xl md:text-3xl font-sans font-bold tracking-tight mb-2">
-          Basket Composer
-        </h1>
-        <p className="text-slate-400 font-mono text-sm">
-          Configure asset weights and mint your on-chain basket
-        </p>
-      </div>
+    <div className="max-w-6xl mx-auto space-y-10 md:space-y-12">
+      
+      {/* --- BASKET COMPOSER SECTION --- */}
+      <div className="space-y-6">
+        <div className="flex flex-col md:flex-row md:items-end justify-between">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-sans font-bold tracking-tight mb-2">
+              ETF Basket Composer
+            </h1>
+            <p className="text-slate-400 font-mono text-sm">
+              Configure asset weights and mint a customized 1:1 on-chain portfolio
+            </p>
+          </div>
+          {msg && <span className="text-xs font-mono text-emerald-400 mt-4 md:mt-0">{msg}</span>}
+        </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
-        {/* Left Column: Configuration Panel */}
-        <div className="md:col-span-2 bg-slate-900/40 border border-slate-800 rounded-xl p-5 md:p-8 flex flex-col">
-          <h2 className="text-slate-500 font-mono text-xs tracking-widest uppercase mb-6 md:mb-8 border-b border-slate-800 pb-4">
-            Asset Allocation
-          </h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
+          {/* Left Column: Configuration Panel */}
+          <div className="md:col-span-2 bg-slate-900/40 border border-slate-800 rounded-xl p-5 md:p-8 flex flex-col">
+            <h2 className="text-slate-500 font-mono text-xs tracking-widest uppercase mb-6 md:mb-8 border-b border-slate-800 pb-4">
+              Asset Allocation
+            </h2>
 
-          <div className="space-y-8 flex-1">
-            {availableAssets.map((asset) => (
-              <div key={asset.id} className="space-y-3">
-                <div className="flex justify-between items-end">
-                  <div>
-                    <h3 className="font-sans font-bold text-lg">{asset.name}</h3>
-                    <p className="text-slate-500 font-mono text-[10px] md:text-xs uppercase">
-                      {asset.tier}
-                    </p>
-                  </div>
-                  <div className="bg-slate-800 px-3 py-1.5 rounded font-mono text-sm text-emerald-400 font-bold border border-slate-700">
-                    {allocations[asset.id]}%
-                  </div>
+            <div className="space-y-8 flex-1">
+              {tradableAssets.length === 0 ? (
+                <div className="text-slate-500 font-mono text-sm text-center py-10">
+                  Waiting for PreStocks asset registry...
                 </div>
+              ) : (
+                tradableAssets.map((asset) => (
+                  <div key={asset.address} className="space-y-3">
+                    <div className="flex justify-between items-end">
+                      <div>
+                        <h3 className="font-sans font-bold text-lg">{nameOf(asset.symbol)}</h3>
+                        <p className="text-slate-500 font-mono text-[10px] md:text-xs uppercase">
+                          {asset.symbol} • PreStocks API
+                        </p>
+                      </div>
+                      <div className="flex gap-4">
+                        <div className="flex flex-col items-end">
+                          <span className="text-[10px] text-slate-500 font-mono uppercase mb-1">Units/Share</span>
+                          <input
+                            type="number"
+                            min="1"
+                            value={units[asset.address] || 1}
+                            onChange={(e) => setUnits(prev => ({ ...prev, [asset.address]: parseInt(e.target.value) || 1 }))}
+                            className="w-16 bg-void border border-slate-700 rounded px-2 py-1 text-xs text-white font-mono text-center focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                          />
+                        </div>
+                        <div className="flex flex-col items-end">
+                          <span className="text-[10px] text-slate-500 font-mono uppercase mb-1">Weight</span>
+                          <div className="bg-slate-800 px-3 py-1 rounded font-mono text-sm text-emerald-400 font-bold border border-slate-700 h-6.5 flex items-center">
+                            {allocations[asset.address] || 0}%
+                          </div>
+                        </div>
+                      </div>
+                    </div>
 
-                {/* Range Slider */}
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={allocations[asset.address] || 0}
+                      onChange={(e) => handleSliderChange(asset.address, parseInt(e.target.value))}
+                      className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-400"
+                    />
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Validation Message */}
+            <div className="mt-10 pt-6 border-t border-slate-800">
+              <p className={`font-mono text-sm font-bold flex items-center space-x-2 ${isValid ? "text-emerald-400" : "text-red-400"}`}>
+                <span>{isValid ? "" : ""}</span>
+                <span>
+                  Total equals {totalAllocation}% {isValid ? "" : "(Must be exactly 100%)"}
+                </span>
+              </p>
+            </div>
+          </div>
+
+          {/* Right Column: Summary Panel */}
+          <div className="md:col-span-1 bg-slate-900 border border-slate-800 rounded-xl p-5 md:p-6 flex flex-col h-fit sticky top-6">
+            <h2 className="text-slate-500 font-mono text-xs tracking-widest uppercase mb-6 border-b border-slate-800 pb-4">
+              Deployment Summary
+            </h2>
+
+            <div className="space-y-6 flex-1">
+              <div>
+                <p className="text-slate-400 font-mono text-xs mb-2">Basket Name</p>
                 <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={allocations[asset.id]}
-                  onChange={(e) => handleSliderChange(asset.id, parseInt(e.target.value))}
-                  className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-400"
+                  type="text"
+                  value={basketName}
+                  onChange={(e) => setBasketName(e.target.value)}
+                  className="w-full bg-void border border-slate-700 rounded px-3 py-2 font-mono text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-400 text-center"
                 />
               </div>
-            ))}
-          </div>
 
-          {/* Validation Message & Add Button */}
-          <div className="mt-10 space-y-6">
-            <p
-              className={`font-mono text-sm font-bold flex items-center space-x-2 ${
-                isValid ? "text-emerald-400" : "text-red-400"
-              }`}
-            >
-              <span>{isValid ? "✓" : "✗"}</span>
-              <span>
-                Total equals {totalAllocation}% {isValid ? "" : "(Must be exactly 100%)"}
-              </span>
-            </p>
+              <div>
+                <p className="text-slate-400 font-mono text-xs mb-3">Composition</p>
+                <div className="space-y-2">
+                  {tradableAssets
+                    .filter(a => allocations[a.address] > 0)
+                    .map((asset) => (
+                    <div key={asset.address} className="flex justify-between items-center text-sm">
+                      <span className="font-mono text-slate-300">{asset.symbol}</span>
+                      <span className="font-mono text-emerald-400">{allocations[asset.address]}%</span>
+                    </div>
+                  ))}
+                  {Object.values(allocations).every(v => v === 0) && (
+                    <span className="font-mono text-xs text-slate-500">No assets selected</span>
+                  )}
+                </div>
+              </div>
 
-            <button className="w-full border border-dashed border-slate-700 text-slate-400 hover:text-white hover:border-slate-500 hover:bg-slate-800/30 py-4 rounded-lg font-mono text-sm transition-colors">
-              + Add asset
-            </button>
-
-            <div className="text-slate-500 font-mono text-xs space-y-1">
-              <p>Basket token: $FORGE-001</p>
-              <p>Min. investment: $500.00 USDC</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column: Summary Panel */}
-        <div className="md:col-span-1 bg-slate-900 border border-slate-800 rounded-xl p-5 md:p-6 flex flex-col h-fit sticky top-6">
-          <h2 className="text-slate-500 font-mono text-xs tracking-widest uppercase mb-6 border-b border-slate-800 pb-4">
-            Basket Overview
-          </h2>
-
-          <div className="space-y-6 flex-1">
-            <div>
-              <p className="text-slate-400 font-mono text-xs mb-2">Basket name</p>
-              <div className="bg-void border border-slate-800 rounded px-3 py-2 font-mono text-sm text-slate-300 text-center">
-                FORGE-001
+              <div className="pt-4 border-t border-slate-800">
+                <p className="text-slate-400 font-mono text-xs mb-1">Estimated Base NAV</p>
+                <p className="text-3xl font-sans font-bold mb-1">{formatCurrency(estimatedNAV)}</p>
               </div>
             </div>
 
-            <div>
-              <p className="text-slate-400 font-mono text-xs mb-3">Allocation</p>
-              <div className="space-y-2">
-                {availableAssets.map((asset) => (
-                  <div key={asset.id} className="flex justify-between items-center text-sm">
-                    <span className="font-mono text-slate-300">{asset.name}</span>
-                    <span className="font-mono text-emerald-400">{allocations[asset.id]}%</span>
-                  </div>
-                ))}
-              </div>
+            <div className="mt-8 space-y-2">
+              <button
+                onClick={createBasket}
+                disabled={!isValid || !wallet.publicKey || busy === "create"}
+                className={`w-full py-3 rounded-lg font-sans font-bold text-lg transition-colors ${
+                  isValid && wallet.publicKey && busy !== "create"
+                    ? "bg-emerald-400 text-void hover:bg-emerald-300"
+                    : "bg-slate-800 text-slate-500 cursor-not-allowed"
+                }`}
+              >
+                {busy === "create" ? "Initializing..." : "Mint Basket Vault"}
+              </button>
+              <p className="text-center text-slate-600 font-mono text-[10px]">
+                {!wallet.publicKey ? "Requires wallet connection" : "1:1 Pro-rata Asset Vault"}
+              </p>
             </div>
-
-            <div className="pt-4 border-t border-slate-800">
-              <p className="text-slate-400 font-mono text-xs mb-1">Estimated NAV</p>
-              <p className="text-3xl font-sans font-bold mb-1">{formatCurrency(estimatedNAV)}</p>
-              <p className="text-emerald-400 font-mono text-xs">▲ +2.4% (7d)</p>
-            </div>
-
-            <div className="pt-4 border-t border-slate-800 space-y-2 text-xs font-mono text-slate-500">
-              <div className="flex justify-between">
-                <span>Protocol fee</span>
-                <span>0.25%</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Est. gas</span>
-                <span>~$0.004</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Network</span>
-                <span>Solana</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-8 space-y-2">
-            <button
-              disabled={!isValid}
-              className={`w-full py-3 rounded-lg font-sans font-bold text-lg transition-colors ${
-                isValid
-                  ? "bg-emerald-400 text-void hover:bg-emerald-300"
-                  : "bg-slate-800 text-slate-500 cursor-not-allowed"
-              }`}
-            >
-              Mint Basket
-            </button>
-            <p className="text-center text-slate-600 font-mono text-[10px]">
-              Requires wallet connection
-            </p>
           </div>
         </div>
       </div>
+
+      {/* --- LIVE ETF BASKETS SECTION --- */}
+      <div className="space-y-6 pt-6 border-t border-slate-800/50">
+        <div>
+          <h2 className="text-xl md:text-2xl font-sans font-bold tracking-tight">Active Portfolios</h2>
+          <p className="text-slate-400 font-mono text-xs mt-1">Deposit underlying tokens to mint shares, or burn shares to redeem.</p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {baskets.length === 0 ? (
+            <div className="text-sm font-mono text-slate-500 p-8 border border-dashed border-slate-800 rounded-xl text-center">
+              No portfolios deployed yet. Be the first to create one above.
+            </div>
+          ) : (
+            baskets.map((b) => {
+              const nav = basketNav(b, prices);
+              const bal = balances[b.publicKey.toBase58()] ?? 0;
+              const key = b.publicKey.toBase58();
+              
+              return (
+                <div key={key} className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 md:p-6 flex flex-col space-y-5 hover:border-slate-700 transition-colors">
+                  
+                  {/* Header */}
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="text-lg font-sans font-bold text-white">{b.account.name}</div>
+                      <div className="text-[10px] font-mono text-slate-500 mt-0.5">
+                        Mint: {b.account.shareMint.toString().slice(0, 12)}...
+                      </div>
+                    </div>
+                    <span className="px-2 py-1 rounded bg-emerald-400/10 text-emerald-400 text-[10px] font-mono font-bold">
+                      1:1 ETF
+                    </span>
+                  </div>
+
+                  {/* Components */}
+                  <div className="space-y-2 bg-void/50 rounded-lg p-3 border border-slate-800/50">
+                    {(b.account.components ?? []).map((c: any, i: number) => {
+                      const symbol = symbolOf(c.mint.toString());
+                      const p = prices[c.mint.toString()]?.usd ?? 0;
+                      return (
+                        <div key={i} className="flex items-center justify-between text-xs font-mono">
+                          <span className="text-slate-300">
+                            {symbol} <span className="text-slate-600 ml-1">({Number(c.weightBps) / 100}%)</span>
+                          </span>
+                          <span className="text-slate-400">
+                            {token(c.amountPerUnit)} req. <span className="text-slate-600 mx-1">·</span> {p ? formatCurrency(p) : "—"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* NAV & Balances */}
+                  <div className="flex items-center justify-between pt-2">
+                    <div>
+                      <div className="text-slate-500 font-mono text-[10px] uppercase mb-1">Live NAV / Share</div>
+                      <div className="text-xl font-mono font-bold text-emerald-400">{formatCurrency(nav)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-slate-500 font-mono text-[10px] uppercase mb-1">Your Balance</div>
+                      <div className="text-xl font-mono font-bold text-white">{bal.toLocaleString()}</div>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="grid grid-cols-2 gap-3 pt-2">
+                    <button
+                      onClick={() => mintShare(b, "1")}
+                      disabled={!wallet.publicKey || busy === `mint-${key}`}
+                      className="w-full py-2 rounded border border-emerald-400 text-emerald-400 font-mono text-sm hover:bg-emerald-400/10 transition-colors disabled:opacity-50"
+                    >
+                      {busy === `mint-${key}` ? "Minting..." : "Mint 1 Share"}
+                    </button>
+                    <button
+                      onClick={() => redeemShare(b, bal > 1 ? "1" : String(bal))}
+                      disabled={!wallet.publicKey || bal <= 0 || busy === `redeem-${key}`}
+                      className="w-full py-2 rounded border border-orange-400 text-orange-400 font-mono text-sm hover:bg-orange-400/10 transition-colors disabled:opacity-50"
+                    >
+                      {busy === `redeem-${key}` ? "Redeeming..." : "Redeem 1 Share"}
+                    </button>
+                  </div>
+                  
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+      
     </div>
   );
 }

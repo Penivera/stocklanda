@@ -1,0 +1,1920 @@
+{
+  "address": "E4t7DUwrLKgxpGb88686DtqrRqnHd5GCKE3ASwR8SCwi",
+  "metadata": {
+    "name": "stockforge",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "buy_option",
+      "docs": [
+        "Buyer pays the premium and activates the contract."
+      ],
+      "discriminator": [
+        242,
+        253,
+        221,
+        183,
+        67,
+        244,
+        140,
+        119
+      ],
+      "accounts": [
+        {
+          "name": "buyer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "option",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "option.writer",
+                "account": "OptionContract"
+              },
+              {
+                "kind": "account",
+                "path": "option.id",
+                "account": "OptionContract"
+              }
+            ]
+          }
+        },
+        {
+          "name": "premium_mint"
+        },
+        {
+          "name": "buyer_premium",
+          "writable": true
+        },
+        {
+          "name": "writer_premium",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel_option",
+      "docs": [
+        "Writer reclaims collateral from an unsold listing."
+      ],
+      "discriminator": [
+        176,
+        215,
+        7,
+        71,
+        184,
+        200,
+        241,
+        217
+      ],
+      "accounts": [
+        {
+          "name": "writer",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "option"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "option",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "option.writer",
+                "account": "OptionContract"
+              },
+              {
+                "kind": "account",
+                "path": "option.id",
+                "account": "OptionContract"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "writer_dest",
+          "writable": true
+        },
+        {
+          "name": "collateral_mint"
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_basket",
+      "docs": [
+        "Create a custom, fully collateralised basket (ETF) and its share mint."
+      ],
+      "discriminator": [
+        47,
+        105,
+        155,
+        148,
+        15,
+        169,
+        202,
+        211
+      ],
+      "accounts": [
+        {
+          "name": "creator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              },
+              {
+                "kind": "arg",
+                "path": "nonce"
+              }
+            ]
+          }
+        },
+        {
+          "name": "share_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "basket"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "nonce",
+          "type": "u64"
+        },
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "components",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "BasketComponent"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "initialize_config",
+      "docs": [
+        "Create the global protocol configuration."
+      ],
+      "discriminator": [
+        208,
+        127,
+        21,
+        1,
+        194,
+        190,
+        196,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury"
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "pyth_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "admin",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "list_option",
+      "docs": [
+        "Writer locks collateral and lists a fully-backed option."
+      ],
+      "discriminator": [
+        158,
+        69,
+        38,
+        73,
+        126,
+        22,
+        126,
+        36
+      ],
+      "accounts": [
+        {
+          "name": "writer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "option",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "writer"
+              },
+              {
+                "kind": "arg",
+                "path": "id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "underlying_mint"
+        },
+        {
+          "name": "collateral_mint"
+        },
+        {
+          "name": "premium_mint"
+        },
+        {
+          "name": "writer_collateral",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "option"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "collateral_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "id",
+          "type": "u64"
+        },
+        {
+          "name": "option_type",
+          "type": {
+            "defined": {
+              "name": "OptionType"
+            }
+          }
+        },
+        {
+          "name": "strike",
+          "type": "u64"
+        },
+        {
+          "name": "size",
+          "type": "u64"
+        },
+        {
+          "name": "premium",
+          "type": "u64"
+        },
+        {
+          "name": "collateral_amount",
+          "type": "u64"
+        },
+        {
+          "name": "expiry",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "mint_basket",
+      "docs": [
+        "Deposit the underlying recipe and mint basket shares 1:1."
+      ],
+      "discriminator": [
+        41,
+        184,
+        119,
+        7,
+        57,
+        187,
+        242,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "basket.creator",
+                "account": "Basket"
+              },
+              {
+                "kind": "account",
+                "path": "basket.nonce",
+                "account": "Basket"
+              }
+            ]
+          }
+        },
+        {
+          "name": "share_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "basket"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_share",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "share_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "units",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "redeem_basket",
+      "docs": [
+        "Burn basket shares and withdraw the proportional underlying assets."
+      ],
+      "discriminator": [
+        37,
+        133,
+        222,
+        57,
+        189,
+        160,
+        151,
+        41
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "basket",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "basket.creator",
+                "account": "Basket"
+              },
+              {
+                "kind": "account",
+                "path": "basket.nonce",
+                "account": "Basket"
+              }
+            ]
+          }
+        },
+        {
+          "name": "share_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  115,
+                  107,
+                  101,
+                  116,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "basket"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_share",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "share_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "units",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "settle_option",
+      "docs": [
+        "Permissionless settlement using an admin-attested price (pre-IPO assets)."
+      ],
+      "discriminator": [
+        106,
+        24,
+        215,
+        51,
+        68,
+        138,
+        106,
+        175
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "admin",
+          "docs": [
+            "Protocol admin that attests to the off-chain price."
+          ],
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "option",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "option.writer",
+                "account": "OptionContract"
+              },
+              {
+                "kind": "account",
+                "path": "option.id",
+                "account": "OptionContract"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "writer_dest",
+          "writable": true
+        },
+        {
+          "name": "buyer_dest",
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "caller_dest",
+          "writable": true
+        },
+        {
+          "name": "collateral_mint"
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "price",
+          "type": "u64"
+        },
+        {
+          "name": "price_timestamp",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "settle_option_pyth",
+      "docs": [
+        "Permissionless settlement using an on-chain Pyth price (public equities)."
+      ],
+      "discriminator": [
+        191,
+        120,
+        230,
+        170,
+        19,
+        55,
+        129,
+        241
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "option",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "option.writer",
+                "account": "OptionContract"
+              },
+              {
+                "kind": "account",
+                "path": "option.id",
+                "account": "OptionContract"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "writer_dest",
+          "writable": true
+        },
+        {
+          "name": "buyer_dest",
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "caller_dest",
+          "writable": true
+        },
+        {
+          "name": "collateral_mint"
+        },
+        {
+          "name": "price_update"
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Basket",
+      "discriminator": [
+        219,
+        79,
+        107,
+        135,
+        231,
+        243,
+        218,
+        248
+      ]
+    },
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "OptionContract",
+      "discriminator": [
+        196,
+        220,
+        72,
+        61,
+        245,
+        42,
+        68,
+        234
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "BasketCreated",
+      "discriminator": [
+        26,
+        146,
+        108,
+        155,
+        189,
+        85,
+        8,
+        7
+      ]
+    },
+    {
+      "name": "OptionListed",
+      "discriminator": [
+        185,
+        230,
+        133,
+        213,
+        205,
+        247,
+        198,
+        102
+      ]
+    },
+    {
+      "name": "OptionPurchased",
+      "discriminator": [
+        9,
+        175,
+        211,
+        168,
+        31,
+        202,
+        39,
+        191
+      ]
+    },
+    {
+      "name": "OptionSettled",
+      "discriminator": [
+        198,
+        174,
+        167,
+        180,
+        218,
+        28,
+        194,
+        75
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "Unauthorized",
+      "msg": "Caller is not authorized to perform this action"
+    },
+    {
+      "code": 6001,
+      "name": "OptionAlreadyActive",
+      "msg": "Option has already been purchased"
+    },
+    {
+      "code": 6002,
+      "name": "OptionNotOpen",
+      "msg": "Option is not open for purchase"
+    },
+    {
+      "code": 6003,
+      "name": "OptionNotExpired",
+      "msg": "Option cannot be settled before its expiry timestamp"
+    },
+    {
+      "code": 6004,
+      "name": "OptionAlreadySettled",
+      "msg": "Option has already been settled"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidExpiry",
+      "msg": "Expiry timestamp must be in the future"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidSize",
+      "msg": "Option size must be greater than zero"
+    },
+    {
+      "code": 6007,
+      "name": "InsufficientCollateral",
+      "msg": "Collateral amount is insufficient for this option"
+    },
+    {
+      "code": 6008,
+      "name": "InvalidPremium",
+      "msg": "Premium must be greater than zero"
+    },
+    {
+      "code": 6009,
+      "name": "InvalidStrike",
+      "msg": "Strike price must be greater than zero"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidNonce",
+      "msg": "Basket nonce does not match"
+    },
+    {
+      "code": 6011,
+      "name": "InvalidCollateralMint",
+      "msg": "Collateral mint must match the underlying mint for covered calls"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidPutCollateral",
+      "msg": "Underlying and collateral mints must differ for cash-secured puts"
+    },
+    {
+      "code": 6013,
+      "name": "MathOverflow",
+      "msg": "Math overflow"
+    },
+    {
+      "code": 6014,
+      "name": "MathUnderflow",
+      "msg": "Math underflow"
+    },
+    {
+      "code": 6015,
+      "name": "StalePrice",
+      "msg": "Settlement price is stale or from an untrusted source"
+    },
+    {
+      "code": 6016,
+      "name": "InvalidPythAccount",
+      "msg": "Pyth price account is invalid or owned by the wrong program"
+    },
+    {
+      "code": 6017,
+      "name": "InvalidPythPrice",
+      "msg": "Pyth price is not currently valid"
+    },
+    {
+      "code": 6018,
+      "name": "InvalidComponents",
+      "msg": "Basket must contain between 1 and 8 components"
+    },
+    {
+      "code": 6019,
+      "name": "InvalidWeights",
+      "msg": "Basket weights must sum to 10000 basis points"
+    },
+    {
+      "code": 6020,
+      "name": "DuplicateComponent",
+      "msg": "Basket component mints must be unique"
+    },
+    {
+      "code": 6021,
+      "name": "ComponentMismatch",
+      "msg": "Component account does not match the basket definition"
+    },
+    {
+      "code": 6022,
+      "name": "InvalidAmount",
+      "msg": "Basket share amount must be greater than zero"
+    },
+    {
+      "code": 6023,
+      "name": "NameTooLong",
+      "msg": "Basket name is too long"
+    },
+    {
+      "code": 6024,
+      "name": "InsufficientShares",
+      "msg": "Not enough basket shares supplied"
+    }
+  ],
+  "types": [
+    {
+      "name": "Basket",
+      "docs": [
+        "A user-defined, fully asset-backed index fund (custom ETF)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "docs": [
+              "Monotonic per-creator id used in the PDA seeds."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "share_mint",
+            "docs": [
+              "SPL mint representing proportional ownership of the vault."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "components",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "BasketComponent"
+                }
+              }
+            }
+          },
+          {
+            "name": "total_units",
+            "docs": [
+              "Total basket units ever minted (informational)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "mint_bump",
+            "docs": [
+              "Bump for the share mint PDA."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BasketComponent",
+      "docs": [
+        "One holding in a custom basket."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "docs": [
+              "Mint of the underlying tokenised stock."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "amount_per_unit",
+            "docs": [
+              "Base units of this mint required per one basket unit."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "weight_bps",
+            "docs": [
+              "Display weight in basis points (informational, sums to 10000)."
+            ],
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BasketCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "basket",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "share_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "components",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "BasketComponent"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Config",
+      "docs": [
+        "Global protocol configuration."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "docs": [
+              "Protocol admin, allowed to sign off-chain settlement prices."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "docs": [
+              "Treasury that collects protocol fees and the settlement crank tip."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "quote_mint",
+            "docs": [
+              "Mint used to pay option premiums (e.g. USDC). 6 decimals assumed."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pyth_program",
+            "docs": [
+              "Pyth receiver program that owns price accounts."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_bps",
+            "docs": [
+              "Protocol fee in basis points, taken from settled collateral."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump for the config PDA."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OptionContract",
+      "docs": [
+        "A fully-collateralised, single-leg option listed by a writer."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "id",
+            "type": "u64"
+          },
+          {
+            "name": "writer",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "docs": [
+              "Set to the buyer's key once purchased; `Pubkey::default()` while open."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "underlying_mint",
+            "docs": [
+              "Tokenised stock (or basket share mint) the option is written on."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "collateral_mint",
+            "docs": [
+              "Asset locked as collateral (quote mint for puts, underlying for calls)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "premium_mint",
+            "docs": [
+              "Mint used to pay the premium (the protocol quote mint)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "option_type",
+            "type": {
+              "defined": {
+                "name": "OptionType"
+              }
+            }
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "OptionStatus"
+              }
+            }
+          },
+          {
+            "name": "strike",
+            "docs": [
+              "Strike price in USD per whole underlying, 6 decimals."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "size",
+            "docs": [
+              "Contract size in underlying base units (6 decimals)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "premium",
+            "docs": [
+              "Premium paid by the buyer, in `premium_mint` base units."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "collateral_amount",
+            "docs": [
+              "Collateral locked in the vault, in `collateral_mint` base units."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "expiry",
+            "docs": [
+              "UNIX timestamp at which the option can be settled."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "settled_price",
+            "docs": [
+              "Price used at settlement, 6 decimals."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "vault",
+            "docs": [
+              "Vault holding the collateral."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OptionListed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "option",
+            "type": "pubkey"
+          },
+          {
+            "name": "writer",
+            "type": "pubkey"
+          },
+          {
+            "name": "option_type",
+            "type": {
+              "defined": {
+                "name": "OptionType"
+              }
+            }
+          },
+          {
+            "name": "strike",
+            "type": "u64"
+          },
+          {
+            "name": "size",
+            "type": "u64"
+          },
+          {
+            "name": "premium",
+            "type": "u64"
+          },
+          {
+            "name": "expiry",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OptionPurchased",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "option",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "premium",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OptionSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "option",
+            "type": "pubkey"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "source",
+            "type": {
+              "defined": {
+                "name": "PriceSource"
+              }
+            }
+          },
+          {
+            "name": "buyer_payout",
+            "type": "u64"
+          },
+          {
+            "name": "writer_payout",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OptionStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Settled"
+          },
+          {
+            "name": "Cancelled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OptionType",
+      "docs": [
+        "Whether a contract pays out on the downside (put) or upside (call)."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Put"
+          },
+          {
+            "name": "Call"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PriceSource",
+      "docs": [
+        "Where a settlement price came from."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Pyth"
+          },
+          {
+            "name": "Admin"
+          }
+        ]
+      }
+    }
+  ],
+  "constants": [
+    {
+      "name": "BASKET_MINT_SEED",
+      "docs": [
+        "Seed prefix for basket share mint PDAs."
+      ],
+      "type": "bytes",
+      "value": "[98, 97, 115, 107, 101, 116, 95, 109, 105, 110, 116]"
+    },
+    {
+      "name": "BASKET_SEED",
+      "docs": [
+        "Seed prefix for basket PDAs."
+      ],
+      "type": "bytes",
+      "value": "[98, 97, 115, 107, 101, 116]"
+    },
+    {
+      "name": "BASKET_UNIT",
+      "docs": [
+        "One \"basket unit\" equals this many base units of the share mint."
+      ],
+      "type": "u64",
+      "value": "1000000"
+    },
+    {
+      "name": "BASKET_VAULT_SEED",
+      "docs": [
+        "Seed prefix for per-component basket vaults."
+      ],
+      "type": "bytes",
+      "value": "[98, 97, 115, 107, 101, 116, 95, 118, 97, 117, 108, 116]"
+    },
+    {
+      "name": "BPS_DENOMINATOR",
+      "docs": [
+        "Basis-point denominator."
+      ],
+      "type": "u64",
+      "value": "10000"
+    },
+    {
+      "name": "CONFIG_SEED",
+      "docs": [
+        "Seed for the global config account."
+      ],
+      "type": "bytes",
+      "value": "[99, 111, 110, 102, 105, 103]"
+    },
+    {
+      "name": "MAX_ADMIN_PRICE_AGE",
+      "docs": [
+        "An admin-supplied settlement price is valid for this many seconds."
+      ],
+      "type": "i64",
+      "value": "3600"
+    },
+    {
+      "name": "MAX_PYTH_PRICE_AGE",
+      "docs": [
+        "A Pyth price is considered fresh within this many seconds."
+      ],
+      "type": "i64",
+      "value": "300"
+    },
+    {
+      "name": "OPTION_SEED",
+      "docs": [
+        "Seed prefix for option contract PDAs."
+      ],
+      "type": "bytes",
+      "value": "[111, 112, 116, 105, 111, 110]"
+    },
+    {
+      "name": "PRICE_DECIMALS",
+      "docs": [
+        "All prices, strikes and USDC amounts are stored with 6 decimals.",
+        "`PRICE_DECIMALS` is the scaling factor (1 whole unit)."
+      ],
+      "type": "u64",
+      "value": "1000000"
+    }
+  ]
+}
