@@ -20,11 +20,20 @@ import { configPda, optionPda } from "@/lib/pda";
 import { ensureAta, compactIxs } from "@/lib/tx";
 import { fromUi, shortKey, toUi, token, usd } from "@/lib/format";
 
+// Helper to reliably extract a base58 string from either PublicKey or string
+const toBase58Str = (key: any): string => {
+  if (!key) return "";
+  if (typeof key === "string") return key;
+  if (typeof key.toBase58 === "function") return key.toBase58();
+  return String(key);
+};
+
 function typeOf(account: any): "CALL" | "PUT" {
-  return account.optionType?.put !== undefined ? "PUT" : "CALL";
+  return account?.optionType?.put !== undefined ? "PUT" : "CALL";
 }
+
 function statusOf(account: any): string {
-  const s = account.status;
+  const s = account?.status;
   if (s?.open !== undefined) return "OPEN";
   if (s?.active !== undefined) return "ACTIVE";
   if (s?.settled !== undefined) return "SETTLED";
@@ -92,7 +101,7 @@ export default function OptionsDesk() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ wallet: wallet.publicKey!.toBase58() }),
       });
-      const json = await res.json();
+      const json = await res.json().catch(() => ({ error: "Server error" }));
       if (!res.ok) throw new Error(json.error ?? "Faucet failed");
       return json.signature ?? "Funded";
     });
@@ -104,17 +113,29 @@ export default function OptionsDesk() {
       const writer = wallet.publicKey!;
       const id = Date.now() % 1_000_000_000;
       const option = optionPda(writer, id);
-      const underlyingMint = tradableMints.find((m) => m.address === underlying)?.address;
-      if (!underlyingMint) throw new Error("Select an underlying asset");
+      const underlyingMintStr = tradableMints.find((m) => m.address === underlying)?.address;
+      if (!underlyingMintStr) throw new Error("Select an underlying asset");
+      
+      const underlyingMint = new PublicKey(underlyingMintStr);
+      const collateralMint = type === "PUT" ? new PublicKey(quoteMint) : underlyingMint;
+      
+      // Guard against NaN or negative inputs crashing the BN constructor
+      const safeSize = Math.max(0, Number(size) || 0);
+      const safeStrike = Math.max(0, Number(strike) || 0);
+      const safePremium = Math.max(0, Number(premium) || 0);
+      const safeMinutes = Math.max(0, Number(minutes) || 0);
 
-      const collateralMint = type === "PUT" ? quoteMint : new PublicKey(underlyingMint);
-      const sizeBn = fromUi(Number(size));
-      const strikeBn = fromUi(Number(strike));
-      const collateral = type === "PUT" ? fromUi(Number(size) * Number(strike)) : sizeBn;
+      if (safeSize === 0 || safeStrike === 0 || safeMinutes === 0) {
+        throw new Error("Invalid numeric inputs");
+      }
+
+      const sizeBn = fromUi(safeSize);
+      const strikeBn = fromUi(safeStrike);
+      const collateral = type === "PUT" ? fromUi(safeSize * safeStrike) : sizeBn;
 
       const writerCollateral = await ensureAta(connection, writer, writer, collateralMint);
       const vault = getAssociatedTokenAddressSync(collateralMint, option, true);
-      const expiry = Math.floor(Date.now() / 1000) + Number(minutes) * 60;
+      const expiry = Math.floor(Date.now() / 1000) + (safeMinutes * 60);
 
       return program.methods
         .listOption(
@@ -122,7 +143,7 @@ export default function OptionsDesk() {
           type === "PUT" ? { put: {} } : { call: {} },
           strikeBn,
           sizeBn,
-          fromUi(Number(premium)),
+          fromUi(safePremium),
           collateral,
           new BN(expiry)
         )
@@ -132,7 +153,7 @@ export default function OptionsDesk() {
           option,
           underlyingMint,
           collateralMint,
-          premiumMint: quoteMint,
+          premiumMint: new PublicKey(quoteMint),
           writerCollateral: writerCollateral.address,
           vault,
           tokenProgram: TOKEN_PROGRAM_ID,
@@ -146,22 +167,28 @@ export default function OptionsDesk() {
 
   const buy = async (option: any) => {
     if (!wallet.publicKey) return;
-    const key = `buy-${option.publicKey.toBase58()}`;
+    const key = `buy-${toBase58Str(option?.publicKey)}`;
     await run(key, async () => {
       const buyer = wallet.publicKey!;
       const a = option.account;
-      const premiumMint = a.premiumMint;
+      if (!a?.premiumMint || !a?.writer) throw new Error("Invalid option account data");
+      
+      const premiumMint = new PublicKey(toBase58Str(a.premiumMint));
+      const writerPubkey = new PublicKey(toBase58Str(a.writer));
+      
       const [buyerAta, writerAta] = await Promise.all([
         ensureAta(connection, buyer, buyer, premiumMint),
-        ensureAta(connection, buyer, a.writer, premiumMint),
+        ensureAta(connection, buyer, writerPubkey, premiumMint),
       ]);
+      
       const { ix } = compactIxs([buyerAta, writerAta]);
+      
       return program.methods
         .buyOption()
         .accounts({
           buyer,
           config: configPda(),
-          option: option.publicKey,
+          option: new PublicKey(toBase58Str(option.publicKey)),
           premiumMint,
           buyerPremium: buyerAta.address,
           writerPremium: writerAta.address,
@@ -173,23 +200,26 @@ export default function OptionsDesk() {
   };
 
   const settle = async (option: any) => {
-    const key = `settle-${option.publicKey.toBase58()}`;
+    const pubkeyStr = toBase58Str(option?.publicKey);
+    if (!pubkeyStr) return;
+    
+    const key = `settle-${pubkeyStr}`;
     await run(key, async () => {
       const res = await fetch("/api/settle", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ option: option.publicKey.toBase58() }),
+        body: JSON.stringify({ option: pubkeyStr }),
       });
-      const json = await res.json();
+      const json = await res.json().catch(() => ({ error: "Server error" }));
       if (!res.ok) throw new Error(json.error ?? "Settlement failed");
       return json.signature ?? "Settled";
     });
   };
 
   // --- COMPUTED DATA ---
-  const filteredOptions = options
+  const filteredOptions = (options ?? [])
     .filter((o) => filter === "ALL" || typeOf(o.account) === filter)
-    .sort((a, b) => Number(b.account.expiry.toString()) - Number(a.account.expiry.toString()));
+    .sort((a, b) => Number(b.account?.expiry?.toString() ?? 0) - Number(a.account?.expiry?.toString() ?? 0));
 
   const openCount = options.filter((o) => statusOf(o.account) === "OPEN").length;
   const activeCount = options.filter((o) => statusOf(o.account) === "ACTIVE").length;
@@ -197,7 +227,7 @@ export default function OptionsDesk() {
     .filter((o) => statusOf(o.account) !== "SETTLED" && statusOf(o.account) !== "CANCELLED")
     .reduce((s, o) => {
       const t = typeOf(o.account);
-      return s + (t === "PUT" ? toUi(o.account.collateralAmount) : 0);
+      return s + (t === "PUT" ? toUi(o.account?.collateralAmount) : 0);
     }, 0);
 
   return (
@@ -222,10 +252,11 @@ export default function OptionsDesk() {
               <button
                 key={f}
                 onClick={() => setFilter(f as any)}
-                className={`px-4 py-1.5 font-mono text-xs rounded transition-colors ${filter === f
+                className={`px-4 py-1.5 font-mono text-xs rounded transition-colors ${
+                  filter === f
                     ? "border border-emerald-400 text-emerald-400 bg-emerald-400/10"
                     : "border border-slate-700 text-slate-400 hover:border-slate-500"
-                  }`}
+                }`}
               >
                 {f}
               </button>
@@ -267,12 +298,13 @@ export default function OptionsDesk() {
                   <button
                     key={t}
                     onClick={() => setType(t)}
-                    className={`flex-1 rounded-lg border px-3 py-2 text-sm font-bold font-mono transition-colors ${type === t
+                    className={`flex-1 rounded-lg border px-3 py-2 text-sm font-bold font-mono transition-colors ${
+                      type === t
                         ? t === "PUT"
                           ? "border-red-400/50 bg-red-400/10 text-red-400"
                           : "border-emerald-400/50 bg-emerald-400/10 text-emerald-400"
                         : "border-slate-700 text-slate-500 hover:border-slate-500"
-                      }`}
+                    }`}
                   >
                     {t}
                   </button>
@@ -303,6 +335,7 @@ export default function OptionsDesk() {
                 value={strike}
                 onChange={(e) => setStrike(e.target.value)}
                 type="number"
+                min="0"
               />
             </div>
 
@@ -313,6 +346,7 @@ export default function OptionsDesk() {
                 value={size}
                 onChange={(e) => setSize(e.target.value)}
                 type="number"
+                min="0"
               />
             </div>
 
@@ -323,6 +357,7 @@ export default function OptionsDesk() {
                 value={premium}
                 onChange={(e) => setPremium(e.target.value)}
                 type="number"
+                min="0"
               />
             </div>
 
@@ -333,6 +368,7 @@ export default function OptionsDesk() {
                 value={minutes}
                 onChange={(e) => setMinutes(e.target.value)}
                 type="number"
+                min="0"
               />
             </div>
 
@@ -374,20 +410,31 @@ export default function OptionsDesk() {
           ) : (
             filteredOptions.map((o) => {
               const a = o.account;
+              if (!a) return null;
+
               const t = typeOf(a);
               const st = statusOf(a);
-              const symbol = symbolOf(a.underlyingMint.toString());
-              const spot = prices[a.underlyingMint.toString()]?.usd ?? 0;
+              
+              const underlyingMintStr = toBase58Str(a.underlyingMint);
+              const symbol = symbolOf(underlyingMintStr);
+              const spot = prices[underlyingMintStr]?.usd ?? 0;
+              
               const strikeVal = toUi(a.strike);
               const itm = t === "PUT" ? spot > 0 && spot < strikeVal : spot > 0 && spot > strikeVal;
-              const expired = Date.now() / 1000 >= Number(a.expiry.toString());
-              const pubkeyStr = o.publicKey.toBase58();
+              
+              const expiryNum = a.expiry ? Number(a.expiry.toString()) : 0;
+              const expired = expiryNum > 0 && Date.now() / 1000 >= expiryNum;
+              
+              const pubkeyStr = toBase58Str(o.publicKey);
+              const writerStr = toBase58Str(a.writer);
+              const buyerStr = toBase58Str(a.buyer);
 
               return (
                 <div
                   key={pubkeyStr}
-                  className={`p-5 flex flex-col md:grid md:grid-cols-8 md:items-center gap-y-4 md:gap-x-4 transition-colors ${st === "SETTLED" || st === "CANCELLED" ? "opacity-50" : "hover:bg-slate-800/30"
-                    }`}
+                  className={`p-5 flex flex-col md:grid md:grid-cols-8 md:items-center gap-y-4 md:gap-x-4 transition-colors ${
+                    st === "SETTLED" || st === "CANCELLED" ? "opacity-50" : "hover:bg-slate-800/30"
+                  }`}
                 >
                   {/* Asset */}
                   <div className="col-span-2 flex items-center space-x-3">
@@ -397,7 +444,7 @@ export default function OptionsDesk() {
                     <div>
                       <p className="font-sans font-bold text-base md:text-sm">{symbol}</p>
                       <p className="text-slate-500 font-mono text-[10px] md:text-xs">
-                        {st} • {shortKey(a.writer.toString())}
+                        {st} • {shortKey(writerStr)}
                       </p>
                     </div>
                   </div>
@@ -406,8 +453,9 @@ export default function OptionsDesk() {
                   <div className="col-span-1 flex md:block justify-between items-center">
                     <p className="text-slate-500 font-mono text-xs md:hidden">Type</p>
                     <span
-                      className={`px-2 py-1 rounded text-[10px] font-mono font-bold ${t === "CALL" ? "bg-emerald-400/10 text-emerald-400" : "bg-red-400/10 text-red-400"
-                        }`}
+                      className={`px-2 py-1 rounded text-[10px] font-mono font-bold ${
+                        t === "CALL" ? "bg-emerald-400/10 text-emerald-400" : "bg-red-400/10 text-red-400"
+                      }`}
                     >
                       {t}
                     </span>
@@ -440,13 +488,13 @@ export default function OptionsDesk() {
                     <p className="text-slate-500 font-mono text-xs md:hidden">Expiry</p>
                     <div>
                       <p className="font-mono text-xs md:text-sm">
-                        {new Date(Number(a.expiry.toString()) * 1000).toLocaleDateString()}
+                        {expiryNum > 0 ? new Date(expiryNum * 1000).toLocaleDateString() : "—"}
                       </p>
                       <p className="text-slate-500 font-mono text-[10px] mt-0.5">
-                        {new Date(Number(a.expiry.toString()) * 1000).toLocaleTimeString([], {
+                        {expiryNum > 0 ? new Date(expiryNum * 1000).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
-                        })}
+                        }) : "—"}
                       </p>
                     </div>
                   </div>
@@ -475,7 +523,7 @@ export default function OptionsDesk() {
 
                     {st === "ACTIVE" && !expired && (
                       <span className="text-[10px] font-mono text-slate-500 text-right">
-                        Held by<br />{shortKey(a.buyer.toString())}
+                        Held by<br />{buyerStr ? shortKey(buyerStr) : "Unknown"}
                       </span>
                     )}
 

@@ -1,6 +1,8 @@
 "use client";
 
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { ArrowRight } from "lucide-react";
+import { useRouter } from "next/navigation";
 import BN from "bn.js";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import {
@@ -21,6 +23,14 @@ import { basketMintPda, basketPda, configPda } from "@/lib/pda";
 import { ensureAta } from "@/lib/tx";
 import { shortKey, token, usd } from "@/lib/format";
 
+// Helper to reliably extract a base58 string from either PublicKey or string
+const toBase58Str = (key: any): string => {
+  if (!key) return "";
+  if (typeof key === "string") return key;
+  if (typeof key.toBase58 === "function") return key.toBase58();
+  return String(key);
+};
+
 export default function BasketComposer() {
   // --- WEB3 ENGINE ---
   const { connection } = useConnection();
@@ -30,11 +40,21 @@ export default function BasketComposer() {
   const baskets = useBaskets();
   const prices = usePriceMap(registry, [], baskets);
 
+  // --Router--
+  const router = useRouter();
+
   // --- UI STATE ---
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [balances, setBalances] = useState<Record<string, number>>({});
-  
+
+  // new modal state for launchpad navigation
+  const [createdModal, setCreatedModal] = useState<{
+    name: string;
+    mint: string;
+    nav: number;
+  } | null>(null);
+
   // Composer State
   const [basketName, setBasketName] = useState("AI Titans");
   const [allocations, setAllocations] = useState<Record<string, number>>({});
@@ -44,7 +64,7 @@ export default function BasketComposer() {
     () => (registry?.mints ?? []).filter((m) => m.symbol !== "USDC"),
     [registry]
   );
-  
+
   const symbolOf = (mint: string) => registry?.symbolByMint?.[mint] ?? shortKey(mint);
 
   // Map on-chain symbols to full display names
@@ -66,14 +86,14 @@ export default function BasketComposer() {
     if (tradableAssets.length > 0 && Object.keys(allocations).length === 0) {
       const initAllocs: Record<string, number> = {};
       const initUnits: Record<string, number> = {};
-      
+
       tradableAssets.forEach((m, i) => {
         // Default to a 40/35/25 split for the first three assets, 0 for the rest
         if (i === 0) initAllocs[m.address] = 40;
         else if (i === 1) initAllocs[m.address] = 35;
         else if (i === 2) initAllocs[m.address] = 25;
         else initAllocs[m.address] = 0;
-        
+
         // Default to 1 token of underlying per basket share
         initUnits[m.address] = 1;
       });
@@ -84,23 +104,34 @@ export default function BasketComposer() {
 
   // Track user's share balances for existing baskets
   useEffect(() => {
-    if (!wallet.publicKey || baskets.length === 0) return;
+    if (!wallet.publicKey || !baskets || baskets.length === 0) return;
     let active = true;
+    
     (async () => {
       const entries = await Promise.all(
         baskets.map(async (b) => {
-          const mint = b.account.shareMint as PublicKey;
-          const ata = getAssociatedTokenAddressSync(mint, wallet.publicKey!, true);
+          const pubkeyStr = toBase58Str(b?.publicKey);
+          const mintStr = toBase58Str(b?.account?.shareMint);
+          
+          if (!pubkeyStr || !mintStr) return ["unknown", 0] as const;
+
           try {
+            const mint = new PublicKey(mintStr);
+            const ata = getAssociatedTokenAddressSync(mint, wallet.publicKey!, true);
             const bal = await connection.getTokenAccountBalance(ata);
-            return [b.publicKey.toBase58(), bal.value.uiAmount ?? 0] as const;
+            return [pubkeyStr, bal.value.uiAmount ?? 0] as const;
           } catch {
-            return [b.publicKey.toBase58(), 0] as const;
+            return [pubkeyStr, 0] as const;
           }
         })
       );
-      if (active) setBalances(Object.fromEntries(entries));
+      if (active) {
+        // Filter out any invalid "unknown" keys before setting state
+        const validEntries = entries.filter(([key]) => key !== "unknown");
+        setBalances(Object.fromEntries(validEntries));
+      }
     })();
+    
     return () => { active = false; };
   }, [wallet.publicKey, baskets, connection, busy]);
 
@@ -116,7 +147,8 @@ export default function BasketComposer() {
     if (allocations[asset.address] > 0) {
       const spot = prices[asset.address]?.usd ?? 0;
       const amount = units[asset.address] ?? 1;
-      return total + (spot * amount);
+      const value = spot * amount;
+      return total + (Number.isFinite(value) ? value : 0);
     }
     return total;
   }, 0);
@@ -146,17 +178,21 @@ export default function BasketComposer() {
       const nonce = Date.now() % 1_000_000_000;
       const basket = basketPda(creator, nonce);
       const shareMint = basketMintPda(basket);
-      
-      // Map user slider percentages to Anchor format
+
       const components = Object.entries(allocations)
         .filter(([_, weight]) => weight > 0)
-        .map(([mint, weight]) => ({
-          mint: new PublicKey(mint),
-          amountPerUnit: new BN(Math.round((units[mint] || 1) * 1e6)),
-          weightBps: weight * 100, // 40% -> 4000 bps
-        }));
+        .map(([mint, weight]) => {
+          const safeUnits = Math.max(0, units[mint] || 1);
+          return {
+            mint: new PublicKey(mint),
+            amountPerUnit: new BN(Math.round(safeUnits * 1e6)),
+            weightBps: weight * 100, // 40% -> 4000 bps
+          };
+        });
 
-      return program.methods
+      if (components.length === 0) throw new Error("Must select at least one component");
+
+      const sig = await program.methods
         .createBasket(new BN(nonce), basketName, components)
         .accounts({
           creator,
@@ -167,39 +203,61 @@ export default function BasketComposer() {
           systemProgram: SystemProgram.programId,
         })
         .rpc();
+
+      // Trigger simple post-creation prompt
+      setCreatedModal({
+        name: basketName,
+        mint: shareMint.toBase58(),
+        nav: estimatedNAV,
+      });
+
+      return sig;
     });
   };
 
   const mintShare = async (b: any, unitCount: string) => {
     if (!wallet.publicKey) return;
-    const key = `mint-${b.publicKey.toBase58()}`;
+    
+    const pubkeyStr = toBase58Str(b?.publicKey);
+    if (!pubkeyStr) return;
+    
+    const key = `mint-${pubkeyStr}`;
+    
     await run(key, async () => {
       const user = wallet.publicKey!;
-      const components = b.account.components;
+      const components = b?.account?.components ?? [];
+      const basketPubkey = new PublicKey(pubkeyStr);
+      const shareMint = new PublicKey(toBase58Str(b?.account?.shareMint));
+      
+      const safeUnits = Math.max(0, Number(unitCount) || 0);
+      if (safeUnits === 0) throw new Error("Invalid unit count");
+
       const rem: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = [];
       const ixs = [];
-      
+
       for (const c of components) {
-        const cmint = c.mint as PublicKey;
-        const vault = getAssociatedTokenAddressSync(cmint, b.publicKey, true);
-        const vaultRes = await ensureAta(connection, user, b.publicKey, cmint);
+        const cmint = new PublicKey(toBase58Str(c.mint));
+        const vault = getAssociatedTokenAddressSync(cmint, basketPubkey, true);
+        const vaultRes = await ensureAta(connection, user, basketPubkey, cmint);
         const srcRes = await ensureAta(connection, user, user, cmint);
+        
         if (vaultRes.ix) ixs.push(vaultRes.ix);
         if (srcRes.ix) ixs.push(srcRes.ix);
+        
         rem.push({ pubkey: cmint, isWritable: true, isSigner: false });
         rem.push({ pubkey: vault, isWritable: true, isSigner: false });
         rem.push({ pubkey: srcRes.address, isWritable: true, isSigner: false });
       }
-      
-      const userShare = await ensureAta(connection, user, user, b.account.shareMint);
+
+      const userShare = await ensureAta(connection, user, user, shareMint);
       if (userShare.ix) ixs.push(userShare.ix);
-      
+
       return program.methods
-        .mintBasket(new BN(Math.round(Number(unitCount) * 1e6)))
+        .mintBasket(new BN(Math.round(safeUnits * 1e6)))
         .accounts({
           user,
-          basket: b.publicKey,
-          shareMint: b.account.shareMint,
+          basket: basketPubkey,
+          shareMint,
           userShare: userShare.address,
           tokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -213,30 +271,44 @@ export default function BasketComposer() {
 
   const redeemShare = async (b: any, unitCount: string) => {
     if (!wallet.publicKey) return;
-    const key = `redeem-${b.publicKey.toBase58()}`;
+    
+    const pubkeyStr = toBase58Str(b?.publicKey);
+    if (!pubkeyStr) return;
+
+    const key = `redeem-${pubkeyStr}`;
+    
     await run(key, async () => {
       const user = wallet.publicKey!;
+      const components = b?.account?.components ?? [];
+      const basketPubkey = new PublicKey(pubkeyStr);
+      const shareMint = new PublicKey(toBase58Str(b?.account?.shareMint));
+
+      const safeUnits = Math.max(0, Number(unitCount) || 0);
+      if (safeUnits === 0) throw new Error("Invalid unit count");
+
       const rem: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = [];
       const ixs = [];
-      
-      for (const c of b.account.components) {
-        const cmint = c.mint as PublicKey;
-        const vault = getAssociatedTokenAddressSync(cmint, b.publicKey, true);
+
+      for (const c of components) {
+        const cmint = new PublicKey(toBase58Str(c.mint));
+        const vault = getAssociatedTokenAddressSync(cmint, basketPubkey, true);
         const destRes = await ensureAta(connection, user, user, cmint);
+        
         if (destRes.ix) ixs.push(destRes.ix);
+        
         rem.push({ pubkey: cmint, isWritable: true, isSigner: false });
         rem.push({ pubkey: vault, isWritable: true, isSigner: false });
         rem.push({ pubkey: destRes.address, isWritable: true, isSigner: false });
       }
-      
-      const userShare = getAssociatedTokenAddressSync(b.account.shareMint, user, true);
-      
+
+      const userShare = getAssociatedTokenAddressSync(shareMint, user, true);
+
       return program.methods
-        .redeemBasket(new BN(Math.round(Number(unitCount) * 1e6)))
+        .redeemBasket(new BN(Math.round(safeUnits * 1e6)))
         .accounts({
           user,
-          basket: b.publicKey,
-          shareMint: b.account.shareMint,
+          basket: basketPubkey,
+          shareMint,
           userShare,
           tokenProgram: TOKEN_PROGRAM_ID,
         })
@@ -248,7 +320,7 @@ export default function BasketComposer() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-10 md:space-y-12">
-      
+
       {/* --- BASKET COMPOSER SECTION --- */}
       <div className="space-y-6">
         <div className="flex flex-col md:flex-row md:items-end justify-between">
@@ -352,11 +424,11 @@ export default function BasketComposer() {
                   {tradableAssets
                     .filter(a => allocations[a.address] > 0)
                     .map((asset) => (
-                    <div key={asset.address} className="flex justify-between items-center text-sm">
-                      <span className="font-mono text-slate-300">{asset.symbol}</span>
-                      <span className="font-mono text-emerald-400">{allocations[asset.address]}%</span>
-                    </div>
-                  ))}
+                      <div key={asset.address} className="flex justify-between items-center text-sm">
+                        <span className="font-mono text-slate-300">{asset.symbol}</span>
+                        <span className="font-mono text-emerald-400">{allocations[asset.address]}%</span>
+                      </div>
+                    ))}
                   {Object.values(allocations).every(v => v === 0) && (
                     <span className="font-mono text-xs text-slate-500">No assets selected</span>
                   )}
@@ -397,25 +469,30 @@ export default function BasketComposer() {
         </div>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {baskets.length === 0 ? (
+          {!baskets || baskets.length === 0 ? (
             <div className="text-sm font-mono text-slate-500 p-8 border border-dashed border-slate-800 rounded-xl text-center">
               No portfolios deployed yet. Be the first to create one above.
             </div>
           ) : (
             baskets.map((b) => {
               const nav = basketNav(b, prices);
-              const bal = balances[b.publicKey.toBase58()] ?? 0;
-              const key = b.publicKey.toBase58();
+              const pubkeyStr = toBase58Str(b?.publicKey);
+              const shareMintStr = toBase58Str(b?.account?.shareMint);
               
+              if (!pubkeyStr) return null;
+              
+              const bal = balances[pubkeyStr] ?? 0;
+              const name = b?.account?.name ?? "Unknown Basket";
+
               return (
-                <div key={key} className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 md:p-6 flex flex-col space-y-5 hover:border-slate-700 transition-colors">
-                  
+                <div key={pubkeyStr} className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 md:p-6 flex flex-col space-y-5 hover:border-slate-700 transition-colors">
+
                   {/* Header */}
                   <div className="flex items-start justify-between">
                     <div>
-                      <div className="text-lg font-sans font-bold text-white">{b.account.name}</div>
+                      <div className="text-lg font-sans font-bold text-white">{name}</div>
                       <div className="text-[10px] font-mono text-slate-500 mt-0.5">
-                        Mint: {b.account.shareMint.toString().slice(0, 12)}...
+                        Mint: {shareMintStr.slice(0, 12)}...
                       </div>
                     </div>
                     <span className="px-2 py-1 rounded bg-emerald-400/10 text-emerald-400 text-[10px] font-mono font-bold">
@@ -425,9 +502,10 @@ export default function BasketComposer() {
 
                   {/* Components */}
                   <div className="space-y-2 bg-void/50 rounded-lg p-3 border border-slate-800/50">
-                    {(b.account.components ?? []).map((c: any, i: number) => {
-                      const symbol = symbolOf(c.mint.toString());
-                      const p = prices[c.mint.toString()]?.usd ?? 0;
+                    {(b?.account?.components ?? []).map((c: any, i: number) => {
+                      const mintStr = toBase58Str(c.mint);
+                      const symbol = symbolOf(mintStr);
+                      const p = prices[mintStr]?.usd ?? 0;
                       return (
                         <div key={i} className="flex items-center justify-between text-xs font-mono">
                           <span className="text-slate-300">
@@ -457,27 +535,84 @@ export default function BasketComposer() {
                   <div className="grid grid-cols-2 gap-3 pt-2">
                     <button
                       onClick={() => mintShare(b, "1")}
-                      disabled={!wallet.publicKey || busy === `mint-${key}`}
+                      disabled={!wallet.publicKey || busy === `mint-${pubkeyStr}`}
                       className="w-full py-2 rounded border border-emerald-400 text-emerald-400 font-mono text-sm hover:bg-emerald-400/10 transition-colors disabled:opacity-50"
                     >
-                      {busy === `mint-${key}` ? "Minting..." : "Mint 1 Share"}
+                      {busy === `mint-${pubkeyStr}` ? "Minting..." : "Mint 1 Share"}
                     </button>
                     <button
                       onClick={() => redeemShare(b, bal > 1 ? "1" : String(bal))}
-                      disabled={!wallet.publicKey || bal <= 0 || busy === `redeem-${key}`}
+                      disabled={!wallet.publicKey || bal <= 0 || busy === `redeem-${pubkeyStr}`}
                       className="w-full py-2 rounded border border-orange-400 text-orange-400 font-mono text-sm hover:bg-orange-400/10 transition-colors disabled:opacity-50"
                     >
-                      {busy === `redeem-${key}` ? "Redeeming..." : "Redeem 1 Share"}
+                      {busy === `redeem-${pubkeyStr}` ? "Redeeming..." : "Redeem 1 Share"}
+                    </button>
+
+                    {/* Meteora Launch Button */}
+                    <button
+                      onClick={() => {
+                        const nameStr = encodeURIComponent(name);
+                        router.push(`/launchpad?mint=${shareMintStr}&symbol=${nameStr}&nav=${nav}`);
+                      }}
+                      className="col-span-2 w-full py-2.5 rounded bg-emerald-400 text-slate-950 font-mono text-xs uppercase tracking-wider font-bold hover:bg-emerald-300 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <span>Launch Pool on Meteora</span>
+                      <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
                     </button>
                   </div>
-                  
+
                 </div>
               );
             })
           )}
         </div>
       </div>
-      
+
+      {/* Simple Flat Prompt Modal */}
+      {createdModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-sm w-full space-y-4">
+            <div>
+              <h3 className="text-base font-sans font-bold text-white">Basket Vault Deployed</h3>
+              <p className="text-slate-400 font-mono text-xs mt-1">
+                {createdModal.name} has been minted on-chain. Would you like to initialize a Meteora liquidity pool for it?
+              </p>
+            </div>
+
+            <div className="bg-slate-950 border border-slate-850 rounded p-3 text-xs font-mono space-y-1">
+              <div className="flex justify-between text-slate-400">
+                <span>Est. Base NAV:</span>
+                <span className="text-emerald-400 font-bold">{formatCurrency(createdModal.nav)}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Mint:</span>
+                <span className="text-slate-300">{shortKey(createdModal.mint)}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setCreatedModal(null)}
+                className="w-1/2 py-2 rounded border border-slate-700 text-slate-300 font-mono text-xs hover:bg-slate-800 transition-colors"
+              >
+                Later
+              </button>
+              <button
+                onClick={() => {
+                  const url = `/launchpad?mint=${createdModal.mint}&symbol=${encodeURIComponent(createdModal.name)}&nav=${createdModal.nav}`;
+                  setCreatedModal(null);
+                  router.push(url);
+                }}
+                className="w-1/2 py-2 rounded bg-emerald-400 text-slate-950 font-mono text-xs font-bold hover:bg-emerald-300 transition-colors flex items-center justify-center gap-1.5"
+              >
+                <span>Launch Pool</span>
+                <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

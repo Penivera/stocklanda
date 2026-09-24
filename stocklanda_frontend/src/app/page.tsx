@@ -1,184 +1,212 @@
-// "use client";
-
-// interface DashboardState {
-//   totalValue: number;
-//   valueChange30d: number;
-//   currency: string;
-//   activeOptions: { total: number; calls: number; puts: number };
-//   myBaskets: { total: number; minted: number; draft: number };
-//   unrealizedPnL: number;
-//   expiringSoon: number;
-//   recentActivity: Array<{
-//     id: string;
-//     title: string;
-//     action: string;
-//     time: string;
-//     value: string;
-//     isPositive: boolean;
-//     isNeutral?: boolean;
-//   }>;
-// }
-
-// const mockState: DashboardState = {
-//   totalValue: 248390.00,
-//   valueChange30d: 12.4,
-//   currency: "USDC",
-//   activeOptions: { total: 7, calls: 3, puts: 4 },
-//   myBaskets: { total: 3, minted: 2, draft: 1 },
-//   unrealizedPnL: 18240,
-//   expiringSoon: 2,
-//   recentActivity: [
-//     { id: "1", title: "SpaceX CALL", action: "Bought", time: "2h ago", value: "+$4.20", isPositive: true },
-//     { id: "2", title: "OpenAI PUT", action: "Written", time: "5h ago", value: "-$7.85", isPositive: false },
-//     { id: "3", title: "FORGE-001 minted", action: "Basket", time: "1d ago", value: "3 assets", isPositive: true },
-//     { id: "4", title: "Anthropic CALL", action: "Expired", time: "2d ago", value: "$0.00", isPositive: false, isNeutral: true },
-//     { id: "5", title: "Stripe PUT", action: "Bought", time: "3d ago", value: "-$12.50", isPositive: false },
-//     { id: "6", title: "TECH-ETF minted", action: "Basket", time: "4d ago", value: "5 assets", isPositive: true },
-//   ]
-// };
-
-// export default function Dashboard() {
-//   const data = mockState; // Swap this variable with your Zustand store later
-
-//   const formatCurrency = (val: number) => 
-//     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
-
-//   return (
-//     <div className="max-w-5xl mx-auto space-y-6 md:space-y-8">
-      
-//       <h1 className="hidden md:block text-sm font-mono text-slate-400 tracking-widest uppercase mb-4">
-//         Portfolio Overview
-//       </h1>
-
-//       {/* Total Value Card */}
-//       <section className="border border-emerald-400 rounded-xl p-6 bg-slate-900/40 relative overflow-hidden">
-//         <p className="text-slate-400 text-sm font-mono mb-2">Total Value</p>
-//         <h2 className="text-4xl md:text-5xl font-sans font-bold mb-2 tracking-tight">
-//           {formatCurrency(data.totalValue)}
-//         </h2>
-//         <p className="text-emerald-400 font-mono text-sm flex items-center space-x-1">
-//           <span>▲</span>
-//           <span>+{data.valueChange30d}% (30d)</span>
-//         </p>
-//         <div className="absolute right-4 bottom-4 text-xs font-mono text-slate-600 hidden md:block">
-//           {data.currency}
-//         </div>
-//       </section>
-
-//       {/* Desktop Two-Column Layout */}
-//       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
-        
-//         {/* Left Column: Metrics Grid */}
-//         <div className="md:col-span-2 grid grid-cols-2 gap-3 md:gap-4">
-//           <div className="bg-slate-900 rounded-xl p-4 md:p-5 border border-slate-800 flex flex-col justify-between">
-//             <p className="text-slate-400 text-xs md:text-sm font-mono mb-2">Active Options</p>
-//             <div>
-//               <p className="text-2xl md:text-3xl font-sans font-bold mb-1">{data.activeOptions.total}</p>
-//               <p className="text-slate-500 text-xs font-mono">
-//                 {data.activeOptions.calls} calls • {data.activeOptions.puts} puts
-//               </p>
-//             </div>
-//           </div>
-          
-//           <div className="bg-slate-900 rounded-xl p-4 md:p-5 border border-slate-800 flex flex-col justify-between">
-//             <p className="text-slate-400 text-xs md:text-sm font-mono mb-2">My Baskets</p>
-//             <div>
-//               <p className="text-2xl md:text-3xl font-sans font-bold mb-1">{data.myBaskets.total}</p>
-//               <p className="text-slate-500 text-xs font-mono">
-//                 {data.myBaskets.minted} minted • {data.myBaskets.draft} draft
-//               </p>
-//             </div>
-//           </div>
-          
-//           <div className="bg-slate-900 rounded-xl p-4 md:p-5 border border-slate-800 flex flex-col justify-between">
-//             <p className="text-slate-400 text-xs md:text-sm font-mono mb-2">Unrealized P&L</p>
-//             <p className="text-xl md:text-2xl font-sans font-bold text-emerald-400">
-//               +{formatCurrency(data.unrealizedPnL)}
-//             </p>
-//           </div>
-          
-//           <div className="bg-slate-900 rounded-xl p-4 md:p-5 border border-slate-800 flex flex-col justify-between">
-//             <p className="text-slate-400 text-xs md:text-sm font-mono mb-2">Expiring Soon</p>
-//             <p className="text-xl md:text-2xl font-sans font-bold text-red-400">
-//               {data.expiringSoon} options
-//             </p>
-//           </div>
-//         </div>
-
-//         {/* Right Column: Recent Activity */}
-//         <section className="md:col-span-1 bg-slate-900/40 border border-slate-800 rounded-xl p-4 md:p-5 flex flex-col h-87.5">
-//           <h3 className="text-slate-500 text-xs font-mono tracking-widest uppercase mb-4 shrink-0">
-//             Recent Activity
-//           </h3>
-          
-//           <div className="space-y-4 overflow-y-auto pr-2 pb-2 flex-1 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
-//             {data.recentActivity.slice(0, 6).map((activity) => (
-//               <div key={activity.id} className="flex justify-between items-center border-b border-slate-800  last:border-0 last:pb-0">
-//                 <div>
-//                   <p className="font-sans text-sm font-medium">{activity.title}</p>
-//                   <p className="text-slate-500 text-xs font-mono mt-1">
-//                     {activity.action} • {activity.time}
-//                   </p>
-//                 </div>
-//                 <p className={`font-mono text-sm ${activity.isNeutral ? 'text-slate-400' : activity.isPositive ? 'text-emerald-400' : 'text-red-400'}`}>
-//                   {activity.value}
-//                 </p>
-//               </div>
-//             ))}
-//           </div>
-//         </section>
-
-//       </div>
-//     </div>
-//   );
-// }
-
 "use client";
 
-interface DashboardState {
-  totalValue: number;
-  valueChange30d: number;
-  currency: string;
-  activeOptions: { total: number; calls: number; puts: number };
-  myBaskets: { total: number; minted: number; draft: number };
-  unrealizedPnL: number;
-  expiringSoon: number;
-  recentActivity: Array<{
-    id: string;
-    title: string;
-    action: string;
-    time: string;
-    value: string;
-  }>;
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { PublicKey } from "@solana/web3.js";
+import { getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { useEffect, useMemo, useState } from "react";
+import {
+  basketNav,
+  useBaskets,
+  usePriceMap,
+  useRegistry,
+} from "@/lib/hooks";
+import { shortKey } from "@/lib/format";
+
+interface ActivityItem {
+  id: string;
+  title: string;
+  action: string;
+  time: string;
+  value: string;
 }
 
-const mockState: DashboardState = {
-  totalValue: 248390.00,
-  valueChange30d: 12.4,
-  currency: "USDC",
-  activeOptions: { total: 7, calls: 3, puts: 4 },
-  myBaskets: { total: 3, minted: 2, draft: 1 },
-  unrealizedPnL: 18240,
-  expiringSoon: 2,
-  recentActivity: [
-    { id: "1", title: "SpaceX CALL", action: "Bought", time: "2h ago", value: "+$4.20" },
-    { id: "2", title: "OpenAI PUT", action: "Written", time: "5h ago", value: "-$7.85" },
-    { id: "3", title: "FORGE-001 minted", action: "Basket", time: "1d ago", value: "3 assets" },
-    { id: "4", title: "Anthropic CALL", action: "Expired", time: "2d ago", value: "$0.00" },
-    { id: "5", title: "Stripe PUT", action: "Bought", time: "3d ago", value: "-$12.50" },
-    { id: "6", title: "TECH-ETF minted", action: "Basket", time: "4d ago", value: "5 assets" },
-  ]
+// Helper to reliably extract a base58 string from either PublicKey or string
+const toBase58Str = (key: any): string => {
+  if (!key) return "";
+  if (typeof key === "string") return key;
+  if (typeof key.toBase58 === "function") return key.toBase58();
+  return String(key);
 };
 
 export default function Dashboard() {
-  const data = mockState; // Swap this variable with your Zustand store later
+  const { connection } = useConnection();
+  const wallet = useWallet();
+  const registry = useRegistry();
+  const baskets = useBaskets();
+  const prices = usePriceMap(registry, [], baskets);
 
-  const formatCurrency = (val: number) => 
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+  const [balances, setBalances] = useState<Record<string, number>>({});
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
+  const [loadingActivity, setLoadingActivity] = useState(false);
+  const [activityError, setActivityError] = useState<string | null>(null);
+
+  // 1. Fetch live token balances for all known mints (Registry assets + Basket ETF mints)
+  useEffect(() => {
+    if (!wallet.publicKey) {
+      setBalances({});
+      return;
+    }
+
+    let active = true;
+
+    (async () => {
+      const allMints: { key: string; address: PublicKey }[] = [];
+
+      // Add PreStocks / Underlying mints from registry
+      (registry?.mints ?? []).forEach((m) => {
+        try {
+          if (m?.address) {
+            allMints.push({ key: m.address, address: new PublicKey(m.address) });
+          }
+        } catch { }
+      });
+
+      // Add Share mints from Baskets
+      (baskets ?? []).forEach((b: any) => {
+        try {
+          const rawMint = b?.account?.shareMint;
+          if (rawMint) {
+            const pubkey = typeof rawMint === "string" ? new PublicKey(rawMint) : (rawMint as PublicKey);
+            allMints.push({ key: pubkey.toBase58(), address: pubkey });
+          }
+        } catch { }
+      });
+
+      const results = await Promise.all(
+        allMints.map(async ({ key, address }) => {
+          try {
+            const ata = getAssociatedTokenAddressSync(address, wallet.publicKey!, true);
+            const bal = await connection.getTokenAccountBalance(ata);
+            return [key, bal.value.uiAmount ?? 0] as const;
+          } catch {
+            return [key, 0] as const;
+          }
+        })
+      );
+
+      if (active) {
+        setBalances(Object.fromEntries(results));
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [wallet.publicKey, connection, registry, baskets]);
+
+  // 2. Compute Total Portfolio Value from holdings * oracle prices (guarded against NaN)
+  const totalValue = useMemo(() => {
+    let sum = 0;
+
+    // Value of underlying / registry tokens held
+    (registry?.mints ?? []).forEach((m) => {
+      const bal = balances[m.address] ?? 0;
+      const spot = prices[m.address]?.usd ?? (m.symbol === "USDC" ? 1 : 0);
+      const val = bal * spot;
+      if (Number.isFinite(val)) sum += val;
+    });
+
+    // Value of ETF basket shares held
+    (baskets ?? []).forEach((b: any) => {
+      const shareMint = toBase58Str(b?.account?.shareMint);
+      if (!shareMint) return;
+
+      const bal = balances[shareMint] ?? 0;
+      const rawNav = basketNav(b, prices);
+      const nav = Number.isFinite(rawNav) ? rawNav : 0;
+      const val = bal * nav;
+      if (Number.isFinite(val)) sum += val;
+    });
+
+    return sum;
+  }, [balances, prices, registry, baskets]);
+
+  // 3. Basket metrics: count baskets created by user vs baskets where user owns shares
+  const basketStats = useMemo(() => {
+    if (!wallet.publicKey) return { total: 0, minted: 0,  holding: 0 };
+
+    const userPubkey = wallet.publicKey.toBase58();
+    const basketList = baskets ?? [];
+
+    const createdByMe = basketList.filter((b: any) => {
+      const creatorStr = toBase58Str(b?.account?.creator);
+      return creatorStr === userPubkey;
+    });
+
+    const holdingShares = basketList.filter((b: any) => {
+      const shareMint = toBase58Str(b?.account?.shareMint);
+      return (balances[shareMint] ?? 0) > 0;
+    });
+
+    return {
+      total: basketList.length,
+      minted: createdByMe.length,
+      holding: holdingShares.length,
+    };
+  }, [baskets, balances, wallet.publicKey]);
+
+  // 4. Fetch real on-chain transaction history for connected wallet
+  useEffect(() => {
+    if (!wallet.publicKey) {
+      setRecentActivity([]);
+      setActivityError(null);
+      return;
+    }
+
+    let active = true;
+    setLoadingActivity(true);
+    setActivityError(null);
+
+    const fetchActivity = async () => {
+      try {
+        const sigs = await connection.getSignaturesForAddress(wallet.publicKey!, {
+          limit: 6,
+        });
+
+        if (!active) return;
+
+        const items: ActivityItem[] = sigs.map((s) => {
+          let timeStr = "recently";
+          if (s.blockTime) {
+            const diffSec = Math.floor(Date.now() / 1000 - s.blockTime);
+            if (diffSec < 60) timeStr = `${diffSec}s ago`;
+            else if (diffSec < 3600) timeStr = `${Math.floor(diffSec / 60)}m ago`;
+            else if (diffSec < 86400) timeStr = `${Math.floor(diffSec / 3600)}h ago`;
+            else timeStr = `${Math.floor(diffSec / 86400)}d ago`;
+          }
+
+          return {
+            id: s.signature,
+            title: `Tx: ${shortKey(s.signature)}`,
+            action: s.err ? "Failed" : "Confirmed",
+            time: timeStr,
+            value: s.err ? "Error" : "Success",
+          };
+        });
+
+        setRecentActivity(items);
+      } catch (err) {
+        if (active) {
+          setRecentActivity([]);
+          setActivityError("Network connection unstable.");
+        }
+      } finally {
+        if (active) setLoadingActivity(false);
+      }
+    };
+
+    fetchActivity();
+
+    return () => {
+      active = false;
+    };
+  }, [wallet.publicKey, connection]);
+
+  const formatCurrency = (val: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(val);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 md:space-y-8">
-      
       <div>
         <h1 className="text-slate-500 font-mono text-xs tracking-widest uppercase mb-4">
           Portfolio Overview
@@ -186,22 +214,22 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
-        
         {/* --- LEFT COLUMN: METRICS --- */}
         <div className="md:col-span-2 space-y-6 md:space-y-8">
-          
           {/* Total Value Card */}
           <section className="border border-slate-800 rounded-xl p-6 md:p-8 bg-slate-900/40 relative overflow-hidden transition-colors hover:bg-slate-800/30">
             <p className="text-slate-400 text-sm font-mono mb-2">Total Value</p>
             <h2 className="text-4xl md:text-5xl font-sans font-bold text-white mb-2 tracking-tight">
-              {formatCurrency(data.totalValue)}
+              {formatCurrency(totalValue)}
             </h2>
             <p className="text-slate-300 font-mono text-sm flex items-center space-x-1">
-              <span className="text-[10px]">▲</span>
-              <span>+{data.valueChange30d}% (30d)</span>
+              <span className="text-[10px] text-emerald-400">●</span>
+              <span className="text-slate-400 text-xs">
+                {wallet.publicKey ? "Live On-Chain Balance" : "Wallet not connected"}
+              </span>
             </p>
             <div className="absolute right-6 bottom-6 text-xs font-mono text-slate-600 hidden md:block uppercase">
-              {data.currency}
+              USDC
             </div>
           </section>
 
@@ -210,34 +238,36 @@ export default function Dashboard() {
             <div className="bg-slate-900/40 rounded-xl p-5 md:p-6 border border-slate-800 flex flex-col justify-between transition-colors hover:bg-slate-800/30">
               <p className="text-slate-400 text-xs md:text-sm font-mono mb-4">Active Options</p>
               <div>
-                <p className="text-2xl md:text-3xl font-sans font-bold text-white mb-1">{data.activeOptions.total}</p>
+                <p className="text-2xl md:text-3xl font-sans font-bold text-white mb-1">0</p>
                 <p className="text-slate-500 text-[10px] md:text-xs font-mono uppercase">
-                  {data.activeOptions.calls} calls • {data.activeOptions.puts} puts
+                  0 calls • 0 puts
                 </p>
               </div>
             </div>
-            
+
             <div className="bg-slate-900/40 rounded-xl p-5 md:p-6 border border-slate-800 flex flex-col justify-between transition-colors hover:bg-slate-800/30">
-              <p className="text-slate-400 text-xs md:text-sm font-mono mb-4">My Baskets</p>
+              <p className="text-slate-400 text-xs md:text-sm font-mono mb-4">ETF Baskets</p>
               <div>
-                <p className="text-2xl md:text-3xl font-sans font-bold text-white mb-1">{data.myBaskets.total}</p>
+                <p className="text-2xl md:text-3xl font-sans font-bold text-white mb-1">
+                  {basketStats.holding}
+                </p>
                 <p className="text-slate-500 text-[10px] md:text-xs font-mono uppercase">
-                  {data.myBaskets.minted} minted • {data.myBaskets.draft} draft
+                  {basketStats.minted} created • {basketStats.total} network
                 </p>
               </div>
             </div>
-            
+
             <div className="bg-slate-900/40 rounded-xl p-5 md:p-6 border border-slate-800 flex flex-col justify-between transition-colors hover:bg-slate-800/30">
               <p className="text-slate-400 text-xs md:text-sm font-mono mb-4">Unrealized P&L</p>
               <p className="text-xl md:text-2xl font-sans font-bold text-white">
-                +{formatCurrency(data.unrealizedPnL)}
+                +$0.00
               </p>
             </div>
-            
+
             <div className="bg-slate-900/40 rounded-xl p-5 md:p-6 border border-slate-800 flex flex-col justify-between transition-colors hover:bg-slate-800/30">
-              <p className="text-slate-400 text-xs md:text-sm font-mono mb-4">Expiring Soon</p>
+              <p className="text-slate-400 text-xs md:text-sm font-mono mb-4">Holdings Count</p>
               <p className="text-xl md:text-2xl font-sans font-bold text-white">
-                {data.expiringSoon} options
+                {Object.values(balances).filter((b) => b > 0).length} assets
               </p>
             </div>
           </div>
@@ -248,24 +278,50 @@ export default function Dashboard() {
           <h2 className="text-slate-500 text-xs font-mono tracking-widest uppercase mb-6 border-b border-slate-800 pb-4 shrink-0">
             Recent Activity
           </h2>
-          
+
           <div className="space-y-6 overflow-y-auto pr-2 pb-2 flex-1 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
-            {data.recentActivity.slice(0, 6).map((activity) => (
-              <div key={activity.id} className="flex justify-between items-start">
-                <div>
-                  <p className="font-sans text-sm font-bold text-white">{activity.title}</p>
-                  <p className="text-slate-500 text-[10px] font-mono mt-0.5 uppercase">
-                    {activity.action} • {activity.time}
-                  </p>
-                </div>
-                <p className="font-mono text-sm text-white">
-                  {activity.value}
+            {!wallet.publicKey ? (
+              <p className="text-xs font-mono text-slate-500 py-4 text-center">
+                Connect wallet to view recent activity
+              </p>
+            ) : loadingActivity ? (
+              <p className="text-xs font-mono text-slate-500 py-4 text-center">
+                Fetching on-chain transactions...
+              </p>
+            ) : activityError ? (
+              <div className="py-6 text-center space-y-2">
+                <p className="text-xs font-mono text-orange-400">⚠️ {activityError}</p>
+                <p className="text-[10px] font-mono text-slate-500">
+                  Retrying connection to Solana RPC...
                 </p>
               </div>
-            ))}
+            ) : recentActivity.length === 0 ? (
+              <p className="text-xs font-mono text-slate-500 py-4 text-center">
+                No recent transactions found
+              </p>
+            ) : (
+              recentActivity.map((activity) => (
+                <div key={activity.id} className="flex justify-between items-start">
+                  <div>
+                    <p className="font-sans text-sm font-bold text-white">{activity.title}</p>
+                    <p className="text-slate-500 text-[10px] font-mono mt-0.5 uppercase">
+                      {activity.action} • {activity.time}
+                    </p>
+                  </div>
+                  <span
+                    className={`font-mono text-xs px-2 py-0.5 rounded ${
+                      activity.action === "Confirmed"
+                        ? "text-emerald-400 bg-emerald-400/10"
+                        : "text-red-400 bg-red-400/10"
+                    }`}
+                  >
+                    {activity.value}
+                  </span>
+                </div>
+              ))
+            )}
           </div>
         </section>
-
       </div>
     </div>
   );
