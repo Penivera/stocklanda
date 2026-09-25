@@ -4,7 +4,7 @@
 | :--- | :--- |
 | **Repo** | `github.com/Penivera/stocklanda` |
 | **Deadline** | 2026-09-25 |
-| **Status** | Decisions locked; work starting on a branch |
+| **Status** | Phases 2–4 implemented on `feat/stocklanda-frontend` (build + lint validated); Phase 5+ pending |
 | **Baseline** | `origin/main` @ `b8576f2` |
 | **Canonical frontend** | `stocklanda_frontend/` (as directed) |
 | **Target** | Real Solana **devnet** deployment |
@@ -230,7 +230,20 @@ P1-1 ─> P1-2 ─> P2-1..P2-5 (real Web3) ─> P3-1..P3-3 (devnet bootstrap) �
 P5-1 (PreStocks catalogue) runs parallel — required for the $10K track
 ```
 
-## 8. Open questions
+## 8. Progress log
+
+| Commit | Scope | State |
+| :--- | :--- | :--- |
+| `4df1d0c` | Merge `feature/hackathon-demo` → `stocklanda_frontend` adopted | ✅ |
+| `c20c0c2` | Plan doc | ✅ |
+| `76ad9f0` | Devnet RPC default, portable keypair, fonts, lint, `.env.example` | ✅ |
+| `d5f7840` | **Phase 2** — real Anchor hooks + options/basket/dashboard rewiring, demo store removed | ✅ build/tsc/lint |
+| (pending) | **Phase 3** — `scripts/seed.ts` + `seed` script | implemented, install/build validating |
+| (pending) | **Phase 4** — DBC flagship lib/api/launchpad + Meteora SDK | implemented, install/build validating |
+
+Verified with a locally provisioned Node 24: `next build` ✅, `tsc` ✅, `npm run lint` → 0 errors.
+
+## 9. Open questions
 
 1. **Confirm the three tracks** (recommend Main + PreStocks + Meteora DBC). This
    decides whether Phase 4 (DBC port) is on the critical path.
