@@ -29,7 +29,7 @@ export function useProgram(): any {
 export function useRegistry(): Registry | null {
   const [registry, setRegistry] = useState<Registry | null>(null);
   useEffect(() => {
-    fetch("/registry.json", { cache: "no-store" })
+    fetch("/api/registry", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then(setRegistry)
       .catch(() => setRegistry(null));
