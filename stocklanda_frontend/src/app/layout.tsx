@@ -6,8 +6,8 @@ import Header from "./components/Header";
 import MobileNav from "./components/MobileNav";
 import WalletProvider from "./components/WalletProvider";
 
-const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-space" });
-const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" });
+const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-space-grotesk" });
+const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains-mono" });
 
 export const metadata: Metadata = {
   title: "StockForge | Web3 Pre-IPO Derivatives",

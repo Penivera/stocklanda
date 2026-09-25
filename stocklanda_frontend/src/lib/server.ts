@@ -1,13 +1,18 @@
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { AnchorProvider, Program } from "@anchor-lang/core";
 import { Connection, Keypair } from "@solana/web3.js";
 import idl from "@/idl/stockforge.json";
 import { RPC_URL } from "./constants";
 
+/**
+ * Deployer/admin keypair used by the server-side API routes. Portable by
+ * default (`~/.config/solana/id.json`); override with `KEYPAIR_PATH`.
+ */
 const KEYPAIR_PATH =
   process.env.KEYPAIR_PATH ??
-  "\\\\wsl.localhost\\Ubuntu\\home\\edmund\\.config\\solana\\id.json";
+  path.join(os.homedir(), ".config", "solana", "id.json");
 
 export function getServer() {
   const connection = new Connection(RPC_URL, "confirmed");
@@ -46,6 +51,30 @@ export interface Registry {
 export function readRegistry(): Registry | null {
   try {
     const p = path.join(process.cwd(), "public", "registry.json");
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+export interface FlagshipRegistry {
+  network: string;
+  name: string;
+  symbol: string;
+  config: string;
+  baseMint: string;
+  pool: string;
+  quoteMint: string;
+  quoteSymbol: string;
+  decimals: number;
+  totalSupply: string;
+  createdAt: string;
+  txs: Record<string, string>;
+}
+
+export function readFlagship(): FlagshipRegistry | null {
+  try {
+    const p = path.join(process.cwd(), "public", "flagship.json");
     return JSON.parse(fs.readFileSync(p, "utf8"));
   } catch {
     return null;

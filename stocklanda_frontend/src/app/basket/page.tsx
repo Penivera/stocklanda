@@ -9,7 +9,7 @@ import {
   usePriceMap,
   useRegistry,
 } from "@/lib/hooks";
-import { shortKey, token, usd } from "@/lib/format";
+import { shortKey, token } from "@/lib/format";
 import { useDemoStore } from "@/store/demoStore";
 
 // Helper to reliably extract a base58 string from either PublicKey or string
