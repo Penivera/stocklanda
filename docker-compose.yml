@@ -1,56 +1,38 @@
-# StockForge frontend — VPS deployment
+# Coolify (Docker Compose build pack) — default compose file.
 #
-#   1. Create the runtime dirs on the host:
-#        mkdir -p secrets data
-#        cp /path/to/your/devnet/id.json secrets/id.json   # deployer/admin keypair
-#   2. Put the generated chain metadata in ./data (written by the seed/flagship jobs):
-#        data/registry.json   data/flagship.json
-#   3. Optionally create a .env next to this file with NEXT_PUBLIC_RPC_URL etc.
-#   4. docker compose up -d --build
+# IMPORTANT: this does NOT publish a host port. Coolify's proxy reaches the
+# container over the Docker network, so binding 0.0.0.0:3000 on the host (which
+# can collide with other services: "port is already allocated") is unnecessary
+# and harmful here.
 #
-# One-off admin jobs (after the program is deployed and the key is funded):
-#   docker compose --profile admin run --rm admin npm run seed
-#   docker compose --profile admin run --rm admin npm run launch:flagship
-
+# In Coolify, for the `web` service set:
+#   - Domain (FQDN)  -> sets SERVICE_FQDN_WEB and the Traefik labels
+#   - SERVICE_PORT_WEB=3000   (so the proxy targets the container's port)
+#   - Persistent Storage: a volume mounted at /data holding id.json,
+#     registry.json and flagship.json
+#
+# NEXT_PUBLIC_* are build-time values (inlined into the client bundle).
 services:
   web:
     build:
       context: ./stocklanda_frontend
       args:
-        # NEXT_PUBLIC_* are inlined at build time, so they matter for the client bundle.
         NEXT_PUBLIC_RPC_URL: ${NEXT_PUBLIC_RPC_URL:-https://api.devnet.solana.com}
         NEXT_PUBLIC_PYTH_API_KEY: ${NEXT_PUBLIC_PYTH_API_KEY:-}
     image: stocklanda-frontend:latest
-    container_name: stocklanda-web
     restart: unless-stopped
-    ports:
-      - "${PORT:-3000}:3000"
     environment:
       NEXT_PUBLIC_RPC_URL: ${NEXT_PUBLIC_RPC_URL:-https://api.devnet.solana.com}
       NEXT_PUBLIC_PYTH_API_KEY: ${NEXT_PUBLIC_PYTH_API_KEY:-}
       RPC_URL: ${RPC_URL:-https://api.devnet.solana.com}
-      KEYPAIR_PATH: /secrets/id.json
+      PORT: "3000"
+      KEYPAIR_PATH: /data/id.json
       REGISTRY_PATH: /data/registry.json
       FLAGSHIP_PATH: /data/flagship.json
+    expose:
+      - "3000"
     volumes:
-      - ./secrets:/secrets:ro
-      - ./data:/data:ro
+      - stocklanda_data:/data
 
-  # Same image, used for one-off seed / flagship jobs. Writes back into ./data.
-  admin:
-    profiles: ["admin"]
-    build:
-      context: ./stocklanda_frontend
-      args:
-        NEXT_PUBLIC_RPC_URL: ${NEXT_PUBLIC_RPC_URL:-https://api.devnet.solana.com}
-        NEXT_PUBLIC_PYTH_API_KEY: ${NEXT_PUBLIC_PYTH_API_KEY:-}
-    image: stocklanda-frontend:latest
-    environment:
-      RPC_URL: ${RPC_URL:-https://api.devnet.solana.com}
-      KEYPAIR_PATH: /secrets/id.json
-      REGISTRY_PATH: /data/registry.json
-      FLAGSHIP_PATH: /data/flagship.json
-    volumes:
-      - ./secrets:/secrets:ro
-      - ./data:/data:rw
-    entrypoint: ["npm", "run"]
+volumes:
+  stocklanda_data:

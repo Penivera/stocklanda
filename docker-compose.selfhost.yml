@@ -1,0 +1,52 @@
+# Plain-VPS deployment (no Coolify): publishes :3000 and uses bind mounts.
+# For Coolify, use docker-compose.yml instead.
+#
+#   1. mkdir -p secrets data
+#      cp /path/to/devnet/id.json secrets/id.json
+#   2. docker compose -f docker-compose.selfhost.yml up -d --build
+#
+# One-off admin jobs (after the program is deployed and the key is funded):
+#   docker compose -f docker-compose.selfhost.yml --profile admin run --rm admin npm run seed
+#   docker compose -f docker-compose.selfhost.yml --profile admin run --rm admin npm run launch:flagship
+
+services:
+  web:
+    build:
+      context: ./stocklanda_frontend
+      args:
+        NEXT_PUBLIC_RPC_URL: ${NEXT_PUBLIC_RPC_URL:-https://api.devnet.solana.com}
+        NEXT_PUBLIC_PYTH_API_KEY: ${NEXT_PUBLIC_PYTH_API_KEY:-}
+    image: stocklanda-frontend:latest
+    container_name: stocklanda-web
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NEXT_PUBLIC_RPC_URL: ${NEXT_PUBLIC_RPC_URL:-https://api.devnet.solana.com}
+      NEXT_PUBLIC_PYTH_API_KEY: ${NEXT_PUBLIC_PYTH_API_KEY:-}
+      RPC_URL: ${RPC_URL:-https://api.devnet.solana.com}
+      KEYPAIR_PATH: /secrets/id.json
+      REGISTRY_PATH: /data/registry.json
+      FLAGSHIP_PATH: /data/flagship.json
+    volumes:
+      - ./secrets:/secrets:ro
+      - ./data:/data:ro
+
+  # Same image, used for one-off seed / flagship jobs. Writes back into ./data.
+  admin:
+    profiles: ["admin"]
+    build:
+      context: ./stocklanda_frontend
+      args:
+        NEXT_PUBLIC_RPC_URL: ${NEXT_PUBLIC_RPC_URL:-https://api.devnet.solana.com}
+        NEXT_PUBLIC_PYTH_API_KEY: ${NEXT_PUBLIC_PYTH_API_KEY:-}
+    image: stocklanda-frontend:latest
+    environment:
+      RPC_URL: ${RPC_URL:-https://api.devnet.solana.com}
+      KEYPAIR_PATH: /secrets/id.json
+      REGISTRY_PATH: /data/registry.json
+      FLAGSHIP_PATH: /data/flagship.json
+    volumes:
+      - ./secrets:/secrets:ro
+      - ./data:/data:rw
+    entrypoint: ["npm", "run"]
