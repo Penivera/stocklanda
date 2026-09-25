@@ -32,7 +32,6 @@ services:
     expose:
       - "3000"
     volumes:
-      - stocklanda_data:/data
-
-volumes:
-  stocklanda_data:
+      # Host directory holding id.json / registry.json / flagship.json.
+      # Set STOCKLANDA_DATA_DIR in Coolify if you want a different path.
+      - ${STOCKLANDA_DATA_DIR:-/srv/stocklanda}:/data
