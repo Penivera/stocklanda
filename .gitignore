@@ -5,3 +5,7 @@
 .env
 .env.local
 .env.*.local
+
+# Generated chain metadata (per-cluster; provided via the /data volume in prod)
+stocklanda_frontend/public/registry.json
+stocklanda_frontend/public/flagship.json
