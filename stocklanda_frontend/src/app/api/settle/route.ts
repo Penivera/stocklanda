@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { BN } from "@anchor-lang/core";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID,
   getOrCreateAssociatedTokenAccount,
@@ -58,21 +58,19 @@ export async function POST(req: Request) {
       cfg.treasury
     );
 
-    const keeper = Keypair.generate();
-    const sig = await connection.requestAirdrop(keeper.publicKey, 1_000_000_000);
-    await connection.confirmTransaction(sig, "confirmed");
+    // The crank is permissionless; the server's funded wallet acts as caller.
     const callerDest = await getOrCreateAssociatedTokenAccount(
       connection,
       payer,
       collateralMint,
-      keeper.publicKey
+      payer.publicKey
     );
 
     const now = Math.floor(Date.now() / 1000);
     const tx = await program.methods
       .settleOption(new BN(priceUsd), new BN(now))
       .accounts({
-        caller: keeper.publicKey,
+        caller: payer.publicKey,
         admin: payer.publicKey,
         config,
         option: optionPk,
@@ -84,7 +82,6 @@ export async function POST(req: Request) {
         collateralMint,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
-      .signers([keeper])
       .rpc();
 
     return NextResponse.json({

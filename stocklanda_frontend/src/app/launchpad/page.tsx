@@ -1,84 +1,212 @@
 "use client";
 
-import { Suspense, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { useWallet } from "@solana/wallet-adapter-react";
-import { useBaskets } from "@/lib/hooks";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { PublicKey, Transaction } from "@solana/web3.js";
+import { getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { Buffer } from "buffer";
+import { useCallback, useEffect, useState } from "react";
+import { shortKey } from "@/lib/format";
 
-// Helper to reliably extract a base58 string from either PublicKey or string
-const toBase58Str = (key: any): string => {
-  if (!key) return "";
-  if (typeof key === "string") return key;
-  if (typeof key.toBase58 === "function") return key.toBase58();
-  return String(key);
-};
+interface FlagshipState {
+  launched: boolean;
+  onChain?: boolean;
+  network?: string;
+  name?: string;
+  symbol?: string;
+  config?: string;
+  baseMint?: string;
+  pool?: string;
+  quoteMint?: string;
+  quoteSymbol?: string;
+  decimals?: number;
+  totalSupply?: string;
+  price?: number;
+  progress?: number;
+  quoteReserve?: number;
+  baseReserve?: number;
+  marketCapSol?: number;
+  migrated?: boolean;
+  error?: string;
+}
 
-// Safe URI decoder to prevent malformed URL crashes
-const safeDecode = (str: string | null): string => {
-  if (!str) return "";
-  try {
-    return decodeURIComponent(str);
-  } catch {
-    return str;
-  }
-};
+export default function Launchpad() {
+  const { connection } = useConnection();
+  const wallet = useWallet();
 
-function LaunchpadInner() {
-  const searchParams = useSearchParams();
-  const passedMint = searchParams.get("mint");
-  const passedSymbol = searchParams.get("symbol");
-  const passedNav = searchParams.get("nav");
+  const [state, setState] = useState<FlagshipState | null>(null);
+  const [amount, setAmount] = useState("0.5");
+  const [slippage, setSlippage] = useState("100");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [sol, setSol] = useState(0);
+  const [forge, setForge] = useState(0);
 
-  const walletAddress = useWallet().publicKey?.toBase58() ?? null;
-  const baskets = useBaskets();
-
-  // Parse passedNav safely with fallback
-  const parsedNav = passedNav ? parseFloat(passedNav) : 1.5;
-  const initialBasePrice = Number.isFinite(parsedNav) && parsedNav > 0 ? parsedNav : 1.5;
-
-  const [basePrice, setBasePrice] = useState<number>(initialBasePrice);
-  const [liquidity, setLiquidity] = useState<number>(50000);
-  const [selectedAsset, setSelectedAsset] = useState<string>(passedMint || "forge");
-  const [statusMsg, setStatusMsg] = useState<string | null>(null);
-  const [isDeploying, setIsDeploying] = useState<boolean>(false);
-
-  const formatCurrency = (val: number) =>
-    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(val);
-
-  // Safe asset amount calculation (guards against division by 0 or NaN)
-  const safeAssetUnits = () => {
-    if (!basePrice || basePrice <= 0 || !Number.isFinite(basePrice)) return 0;
-    const units = Math.floor(liquidity / basePrice);
-    return Number.isFinite(units) ? units : 0;
-  };
-
-  // Helper to display the correct asset name in the Deployment Summary
-  const getSelectedName = () => {
-    if (passedSymbol && selectedAsset === passedMint) {
-      return safeDecode(passedSymbol);
-    }
-
-    const liveBasket = (baskets ?? []).find(
-      (b: any) => toBase58Str(b?.account?.shareMint) === selectedAsset
-    );
-    if (liveBasket?.account?.name) return liveBasket.account.name;
-
-    return selectedAsset === "pre" ? "PRE" : "FORGE";
-  };
-
-  const handleInitializePool = async () => {
-    setIsDeploying(true);
-    setStatusMsg(null);
+  const load = useCallback(async () => {
     try {
-      // UI feedback state for demonstration
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      setStatusMsg("✓ Meteora DLMM pool initialized successfully");
+      const res = await fetch("/api/flagship", { cache: "no-store" });
+      setState(await res.json());
     } catch {
-      setStatusMsg("✕ Failed to initialize pool");
+      setState({ launched: false });
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 15000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  useEffect(() => {
+    if (!wallet.publicKey) {
+      setSol(0);
+      setForge(0);
+      return;
+    }
+    let active = true;
+    (async () => {
+      try {
+        const lamports = await connection.getBalance(wallet.publicKey!);
+        if (active) setSol(lamports / 1e9);
+      } catch {
+        /* ignore */
+      }
+      if (state?.baseMint && state.decimals) {
+        try {
+          const ata = getAssociatedTokenAddressSync(
+            new PublicKey(state.baseMint),
+            wallet.publicKey!,
+            true
+          );
+          const bal = await connection.getTokenAccountBalance(ata);
+          if (active) setForge(bal.value.uiAmount ?? 0);
+        } catch {
+          if (active) setForge(0);
+        }
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [wallet.publicKey, connection, state?.baseMint, state?.decimals, busy]);
+
+  const run = async (key: string, fn: () => Promise<string>) => {
+    setBusy(key);
+    setMsg(null);
+    try {
+      const sig = await fn();
+      setMsg(`✓ tx: ${sig.slice(0, 8)}…`);
+    } catch (e: any) {
+      console.error(e);
+      setMsg(`✕ ${e?.message ?? "Transaction failed"}`);
     } finally {
-      setIsDeploying(false);
+      setBusy(null);
     }
   };
+
+  const trade = async (side: "buy" | "sell") => {
+    if (!wallet.publicKey) return;
+    await run(side, async () => {
+      if (!wallet.signTransaction) throw new Error("wallet cannot sign");
+      const res = await fetch("/api/flagship", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: side,
+          wallet: wallet.publicKey!.toBase58(),
+          amount: Number(amount),
+          slippageBps: Number(slippage),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "could not build swap");
+      const tx = Transaction.from(Buffer.from(json.transaction, "base64"));
+      const signed = await wallet.signTransaction!(tx);
+      const sig = await connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight: false,
+      });
+      await connection.confirmTransaction(sig, "confirmed");
+      return sig;
+    });
+    load();
+  };
+
+  if (!state) {    return (
+      <div className="max-w-6xl mx-auto py-20 text-center text-slate-500 font-mono text-sm">
+        Loading flagship launch…
+      </div>
+    );
+  }
+
+  // --- NOT LAUNCHED ---
+  if (!state.launched) {
+    return (
+      <div className="max-w-6xl mx-auto space-y-6 md:space-y-8">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-sans font-bold tracking-tight mb-2">
+            Meteora Launchpad
+          </h1>
+          <p className="text-slate-400 font-mono text-sm">
+            StockForge Governance ($FORGE) on Meteora&apos;s Dynamic Bonding Curve
+          </p>
+        </div>
+
+        <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 md:p-8 space-y-6">
+          <div className="flex items-center gap-2">
+            <h2 className="text-slate-300 font-sans font-bold">StockForge Governance · $FORGE</h2>
+            <span className="px-2 py-1 rounded bg-amber-400/10 text-amber-400 text-[10px] font-mono font-bold">
+              Meteora DBC
+            </span>
+          </div>
+          <p className="text-slate-400 font-mono text-xs max-w-3xl">
+            A single flagship token launch on Meteora&apos;s Dynamic Bonding Curve — deliberately
+            separate from the asset-backed ETF vaults. The curve uses a linear fee scheduler and a
+            custom DAMM v2 graduation fee tier tuned for equity-like assets.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-void/50 border border-slate-800 rounded-lg p-4">
+              <p className="text-slate-500 font-mono text-[10px] uppercase mb-1">Supply</p>
+              <p className="text-white font-mono font-bold">1,000,000,000</p>
+              <p className="text-slate-500 font-mono text-[10px] mt-1">6 decimals · immutable</p>
+            </div>
+            <div className="bg-void/50 border border-slate-800 rounded-lg p-4">
+              <p className="text-slate-500 font-mono text-[10px] uppercase mb-1">Base fee</p>
+              <p className="text-white font-mono font-bold">3% → 0.5%</p>
+              <p className="text-slate-500 font-mono text-[10px] mt-1">Linear · 12 periods / 24h</p>
+            </div>
+            <div className="bg-void/50 border border-slate-800 rounded-lg p-4">
+              <p className="text-slate-500 font-mono text-[10px] uppercase mb-1">Graduation</p>
+              <p className="text-white font-mono font-bold">5 SOL</p>
+              <p className="text-slate-500 font-mono text-[10px] mt-1">25% migrated · DAMM v2 1% tier</p>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-slate-800 bg-void/60 p-4">
+            <p className="text-slate-400 font-mono text-xs font-bold uppercase tracking-wide mb-2">
+              Launch it
+            </p>
+            <p className="text-slate-400 font-mono text-xs">
+              The DBC program lives on devnet/mainnet. Point the app at devnet and run the launch
+              script with a funded key; the pool is then read live here.
+            </p>
+            <pre className="mt-3 overflow-x-auto rounded-lg bg-slate-950 border border-slate-800 p-3 text-[11px] text-slate-200 font-mono">
+{`# .env.local
+NEXT_PUBLIC_RPC_URL=https://api.devnet.solana.com
+RPC_URL=https://api.devnet.solana.com
+
+npm run launch:flagship`}
+            </pre>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- LAUNCHED ---
+  const progress = Math.max(0, Math.min(1, state.progress ?? 0));
+  const cluster = state.network && state.network !== "mainnet-beta" ? `?cluster=${state.network}` : "";
+  const link = (addr?: string) => (addr ? `https://solscan.io/account/${addr}${cluster}` : "#");
+  const migTarget = 5;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 md:space-y-8">
@@ -87,190 +215,149 @@ function LaunchpadInner() {
           Meteora Launchpad
         </h1>
         <p className="text-slate-400 font-mono text-sm">
-          Deploy a dynamic AMM pool for single-token equity launches
+          {state.name} · ${state.symbol} — live on the Dynamic Bonding Curve
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
-        {/* Left Column: Configuration Panel */}
-        <div className="md:col-span-2 space-y-6">
-          <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 md:p-8 flex flex-col">
-            <h2 className="text-slate-500 font-mono text-xs tracking-widest uppercase mb-6 border-b border-slate-800 pb-4">
-              Token Configuration
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-slate-400 font-mono text-xs mb-2">Select Asset</label>
-                <select
-                  value={selectedAsset}
-                  onChange={(e) => setSelectedAsset(e.target.value)}
-                  className="w-full bg-void border border-slate-700 rounded-lg px-4 py-3 font-mono text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-400 cursor-pointer"
-                >
-                  {/* Auto-injected option if routed directly from Basket Composer */}
-                  {passedMint && passedSymbol && !(baskets ?? []).some((b: any) => toBase58Str(b?.account?.shareMint) === passedMint) && (
-                    <option value={passedMint} className="bg-slate-900 text-emerald-400">
-                      {safeDecode(passedSymbol)} (ETF)
-                    </option>
-                  )}
-
-                  {/* Map through all live on-chain ETF Baskets */}
-                  {(baskets ?? []).map((b: any) => {
-                    const shareMintStr = toBase58Str(b?.account?.shareMint);
-                    const basketKey = toBase58Str(b?.publicKey) || shareMintStr;
-                    return (
-                      <option
-                        key={basketKey}
-                        value={shareMintStr}
-                        className="bg-slate-900 text-emerald-400"
-                      >
-                        {b?.account?.name ?? "Custom Basket"} (ETF)
-                      </option>
-                    );
-                  })}
-
-                  {/* Default non-ETF assets */}
-                  <option value="forge" className="bg-slate-900 text-white">StockForge Gov ($FORGE)</option>
-                  <option value="pre" className="bg-slate-900 text-white">PreStocks Mock ($PRE)</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-slate-400 font-mono text-xs mb-2">Pool Type</label>
-                <div className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 font-mono text-sm text-slate-300">
-                  DLMM (Dynamic Liquidity)
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 md:p-8 flex flex-col">
-            <h2 className="text-slate-500 font-mono text-xs tracking-widest uppercase mb-6 border-b border-slate-800 pb-4">
-              Liquidity & Curve Strategy
-            </h2>
-
-            <div className="space-y-8">
-              <div>
-                <div className="flex justify-between items-end mb-4">
-                  <label className="text-slate-300 font-sans font-bold">Base Starting Price</label>
-                  <span className="font-mono text-emerald-400 font-bold">{formatCurrency(basePrice)}</span>
-                </div>
-                <input
-                  type="range"
-                  min="0.1"
-                  max="10"
-                  step="0.1"
-                  value={basePrice}
-                  onChange={(e) => setBasePrice(parseFloat(e.target.value) || 0.1)}
-                  className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-400"
-                />
-                <div className="flex justify-between text-slate-500 font-mono text-[10px] mt-2">
-                  <span>$0.10</span>
-                  <span>$10.00</span>
-                </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between items-end mb-4">
-                  <label className="text-slate-300 font-sans font-bold">Initial USDC Liquidity</label>
-                  <span className="font-mono text-emerald-400 font-bold">{formatCurrency(liquidity)}</span>
-                </div>
-                <input
-                  type="range"
-                  min="10000"
-                  max="250000"
-                  step="5000"
-                  value={liquidity}
-                  onChange={(e) => setLiquidity(parseInt(e.target.value) || 10000)}
-                  className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-400"
-                />
-                <div className="flex justify-between text-slate-500 font-mono text-[10px] mt-2">
-                  <span>$10,000</span>
-                  <span>$250,000</span>
-                </div>
-              </div>
-            </div>
-          </div>
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-4">
+          <p className="text-slate-500 font-mono text-[10px] uppercase mb-1">{state.symbol} price</p>
+          <p className="text-white font-mono font-bold">
+            {state.price ? `${state.price.toFixed(6)} SOL` : "—"}
+          </p>
+          <p className="text-slate-500 font-mono text-[10px] mt-1">Spot on the curve</p>
         </div>
-
-        {/* Right Column: Pool Summary */}
-        <div className="md:col-span-1 bg-slate-900 border border-slate-800 rounded-xl p-5 md:p-6 flex flex-col h-fit sticky top-6">
-          <h2 className="text-slate-500 font-mono text-xs tracking-widest uppercase mb-6 border-b border-slate-800 pb-4">
-            Deployment Summary
-          </h2>
-
-          <div className="space-y-6 flex-1">
-            <div>
-              <p className="text-slate-400 font-mono text-xs mb-3">Pool Composition</p>
-              <div className="space-y-2">
-                <div className="flex justify-between items-center text-sm">
-                  <span className="font-mono text-slate-300 uppercase">
-                    {getSelectedName()}
-                  </span>
-                  <span className="font-mono text-emerald-400">
-                    {new Intl.NumberFormat("en-US").format(safeAssetUnits())}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="font-mono text-slate-300">USDC</span>
-                  <span className="font-mono text-emerald-400">{formatCurrency(liquidity)}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-slate-800">
-              <p className="text-slate-400 font-mono text-xs mb-1">Total Value Locked (Est)</p>
-              <p className="text-3xl font-sans font-bold mb-1">{formatCurrency(liquidity * 2)}</p>
-            </div>
-
-            <div className="pt-4 border-t border-slate-800 space-y-2 text-xs font-mono text-slate-500">
-              <div className="flex justify-between">
-                <span>Curve Type</span>
-                <span className="text-slate-300">Volatile</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Dynamic Fee</span>
-                <span className="text-slate-300">0.15% - 1.5%</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Protocol</span>
-                <span className="text-slate-300">Meteora DLMM</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-8 space-y-2">
-            {statusMsg && (
-              <p className="text-xs font-mono text-emerald-400 text-center mb-2">
-                {statusMsg}
-              </p>
-            )}
-            <button
-              onClick={handleInitializePool}
-              disabled={!walletAddress || isDeploying}
-              className="w-full py-3 rounded-lg font-sans font-bold text-lg bg-emerald-400 text-void hover:bg-emerald-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isDeploying ? "Deploying Pool..." : "Initialize Pool"}
-            </button>
-            <p className="text-center text-slate-600 font-mono text-[10px]">
-              {!walletAddress ? "Requires wallet connection" : "Meteora DLMM On-Chain Pool"}
-            </p>
-          </div>
+        <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-4">
+          <p className="text-slate-500 font-mono text-[10px] uppercase mb-1">Quote raised</p>
+          <p className="text-white font-mono font-bold">{(state.quoteReserve ?? 0).toFixed(4)} SOL</p>
+          <p className="text-slate-500 font-mono text-[10px] mt-1">Target {migTarget} SOL</p>
+        </div>
+        <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-4">
+          <p className="text-slate-500 font-mono text-[10px] uppercase mb-1">Market cap</p>
+          <p className="text-white font-mono font-bold">{(state.marketCapSol ?? 0).toFixed(1)} SOL</p>
+          <p className="text-slate-500 font-mono text-[10px] mt-1">
+            {Number(state.totalSupply ?? 0).toLocaleString()} {state.symbol}
+          </p>
+        </div>
+        <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-4">
+          <p className="text-slate-500 font-mono text-[10px] uppercase mb-1">Status</p>
+          <p className={`font-mono font-bold ${state.migrated ? "text-emerald-400" : "text-white"}`}>
+            {state.migrated ? "Graduated" : "On curve"}
+          </p>
+          <p className="text-slate-500 font-mono text-[10px] mt-1">
+            {state.onChain ? "Live on-chain" : "Indexed only"}
+          </p>
         </div>
       </div>
-    </div>
-  );
-}
 
-export default function Launchpad() {
-  return (
-    <Suspense
-      fallback={
-        <div className="max-w-6xl mx-auto py-20 text-center text-slate-500 font-mono text-sm">
-          Loading launchpad…
+      {/* Trade panel */}
+      <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 md:p-6 space-y-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-white font-sans font-bold">
+              {state.name} · ${state.symbol}
+            </h2>
+            <p className="text-slate-500 font-mono text-[11px] mt-1">
+              pool {state.pool ? shortKey(state.pool) : "—"} · config{" "}
+              {state.config ? shortKey(state.config) : "—"} ·{" "}
+              {state.onChain ? "live" : "not found on this cluster"}
+            </p>
+          </div>
+          {state.pool && (
+            <a
+              className="text-[11px] font-mono text-emerald-400 hover:underline shrink-0"
+              href={link(state.pool)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              View pool ↗
+            </a>
+          )}
         </div>
-      }
-    >
-      <LaunchpadInner />
-    </Suspense>
+
+        {/* Progress */}
+        <div>
+          <div className="mb-1 flex items-center justify-between text-[11px] font-mono text-slate-400">
+            <span>Curve progress to graduation</span>
+            <span>{(progress * 100).toFixed(1)}%</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+            <div
+              className="h-2 rounded-full bg-emerald-400 transition-all"
+              style={{ width: `${progress * 100}%` }}
+            />
+          </div>
+          <div className="mt-1 flex justify-between text-[10px] font-mono text-slate-600">
+            <span>{(state.baseReserve ?? 0).toLocaleString()} {state.symbol} in curve</span>
+            <span>base fee 3% → 0.5% linear</span>
+          </div>
+        </div>
+
+        {/* Buy / sell */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-slate-800 pt-4">
+          <div>
+            <label className="block text-slate-400 font-mono text-xs mb-2">
+              Amount ({state.quoteSymbol ?? "SOL"})
+            </label>
+            <input
+              className="w-full bg-void border border-slate-700 rounded-lg px-4 py-2 font-mono text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-400"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              type="number"
+              min="0"
+            />
+          </div>
+          <div>
+            <label className="block text-slate-400 font-mono text-xs mb-2">Slippage (bps)</label>
+            <input
+              className="w-full bg-void border border-slate-700 rounded-lg px-4 py-2 font-mono text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-400"
+              value={slippage}
+              onChange={(e) => setSlippage(e.target.value)}
+              type="number"
+              min="1"
+            />
+          </div>
+          <div className="flex flex-col justify-end gap-2">
+            <div className="text-[11px] font-mono text-slate-400">
+              Wallet: <span className="text-slate-200">{sol.toFixed(3)} SOL</span> ·{" "}
+              <span className="text-slate-200">
+                {forge.toLocaleString()} {state.symbol}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => trade("buy")}
+                disabled={!wallet.publicKey || busy === "buy" || !state.onChain}
+                className="flex-1 py-2 rounded border border-emerald-400 text-emerald-400 font-mono text-sm hover:bg-emerald-400/10 transition-colors disabled:opacity-50"
+              >
+                {busy === "buy" ? "Buying..." : `Buy ${state.symbol}`}
+              </button>
+              <button
+                onClick={() => trade("sell")}
+                disabled={!wallet.publicKey || busy === "sell" || !state.onChain || forge <= 0}
+                className="flex-1 py-2 rounded border border-orange-400 text-orange-400 font-mono text-sm hover:bg-orange-400/10 transition-colors disabled:opacity-50"
+              >
+                {busy === "sell" ? "Selling..." : "Sell"}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+          <span>
+            Quote asset: {state.quoteSymbol ?? "SOL"} ·{" "}
+            <span>{state.quoteMint ? shortKey(state.quoteMint) : "—"}</span>
+          </span>
+          {msg ? <span className="text-slate-200">{msg}</span> : null}
+        </div>
+      </div>
+
+      {/* Flagship is intentionally decoupled from the ETF vaults (review.md section 3) */}
+      <p className="text-center text-slate-600 font-mono text-[10px]">
+        The flagship DBC launch is intentionally separate from the 1:1 asset-backed ETF
+        baskets (see review.md section 3).
+      </p>
+    </div>
   );
 }

@@ -532,15 +532,12 @@ export default function BasketComposer() {
                       {busy === `redeem-${pubkeyStr}` ? "Redeeming..." : "Redeem 1 Share"}
                     </button>
 
-                    {/* Meteora Launch Button */}
+                    {/* Meteora Launchpad (flagship DBC — decoupled from ETF vaults) */}
                     <button
-                      onClick={() => {
-                        const nameStr = encodeURIComponent(name);
-                        router.push(`/launchpad?mint=${shareMintStr}&symbol=${nameStr}&nav=${nav}`);
-                      }}
+                      onClick={() => router.push("/launchpad")}
                       className="col-span-2 w-full py-2.5 rounded bg-emerald-400 text-slate-950 font-mono text-xs uppercase tracking-wider font-bold hover:bg-emerald-300 transition-colors flex items-center justify-center gap-2"
                     >
-                      <span>Launch Pool on Meteora</span>
+                      <span>Open Meteora Launchpad</span>
                       <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
                     </button>
                   </div>
@@ -559,7 +556,7 @@ export default function BasketComposer() {
             <div>
               <h3 className="text-base font-sans font-bold text-white">Basket Vault Deployed</h3>
               <p className="text-slate-400 font-mono text-xs mt-1">
-                {createdModal.name} has been minted on-chain. Would you like to initialize a Meteora liquidity pool for it?
+                {createdModal.name} has been minted on-chain.
               </p>
             </div>
 
@@ -579,17 +576,16 @@ export default function BasketComposer() {
                 onClick={() => setCreatedModal(null)}
                 className="w-1/2 py-2 rounded border border-slate-700 text-slate-300 font-mono text-xs hover:bg-slate-800 transition-colors"
               >
-                Later
+                Close
               </button>
               <button
                 onClick={() => {
-                  const url = `/launchpad?mint=${createdModal.mint}&symbol=${encodeURIComponent(createdModal.name)}&nav=${createdModal.nav}`;
                   setCreatedModal(null);
-                  router.push(url);
+                  router.push("/launchpad");
                 }}
                 className="w-1/2 py-2 rounded bg-emerald-400 text-slate-950 font-mono text-xs font-bold hover:bg-emerald-300 transition-colors flex items-center justify-center gap-1.5"
               >
-                <span>Launch Pool</span>
+                <span>Open Launchpad</span>
                 <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
               </button>
             </div>
