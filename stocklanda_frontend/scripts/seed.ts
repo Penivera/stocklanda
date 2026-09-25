@@ -49,16 +49,18 @@ async function fundWallet(
   to: PublicKey,
   lamports: number
 ) {
-  try {
-    const sig = await connection.requestAirdrop(to, lamports);
-    const bh = await connection.getLatestBlockhash();
-    await connection.confirmTransaction({ signature: sig, ...bh }, "confirmed");
-    console.log(`airdropped ${lamports / 1e9} SOL -> ${to.toBase58()}`);
-    return;
-  } catch {
-    console.log(
-      `airdrop unavailable; transferring ${lamports / 1e9} SOL from payer -> ${to.toBase58()}`
-    );
+  if (RPC.includes("127.0.0.1") || RPC.includes("localhost")) {
+    try {
+      const sig = await connection.requestAirdrop(to, lamports);
+      const bh = await connection.getLatestBlockhash();
+      await connection.confirmTransaction({ signature: sig, ...bh }, "confirmed");
+      console.log(`airdropped ${lamports / 1e9} SOL -> ${to.toBase58()}`);
+      return;
+    } catch {
+      console.log("airdrop failed; falling back to a payer transfer");
+    }
+  } else {
+    console.log(`transferring ${lamports / 1e9} SOL from payer -> ${to.toBase58()}`);
   }
   const tx = new Transaction().add(
     SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: to, lamports })
@@ -178,7 +180,7 @@ async function main() {
   );
   const vault1 = getAssociatedTokenAddressSync(usdc, option1, true);
   await program.methods
-    .listOption(opt1Id, { put: {} }, new BN(120_000_000), new BN(1_000_000), new BN(5_000_000), new BN(120_000_000), new BN(Math.floor(Date.now() / 1000) + 15))
+    .listOption(opt1Id, { put: {} }, new BN(120_000_000), new BN(1_000_000), new BN(5_000_000), new BN(120_000_000), new BN(Math.floor(Date.now() / 1000) + 40))
     .accounts({
       writer: payer.publicKey,
       config,
@@ -284,7 +286,7 @@ async function main() {
   console.log("active put", option3.toBase58());
 
   log("Waiting for option 1 expiry");
-  await new Promise((r) => setTimeout(r, 17_000));
+  await new Promise((r) => setTimeout(r, 42_000));
 
   if (!process.env.SKIP_SETTLE) {
     log("settle_option (admin price, NVDA = $100 -> ITM)");
