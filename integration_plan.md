@@ -4,7 +4,7 @@
 | :--- | :--- |
 | **Repo** | `github.com/Penivera/stocklanda` |
 | **Deadline** | 2026-09-25 |
-| **Status** | Phases 2–4 implemented on `feat/stocklanda-frontend` (build + lint validated); Phase 5+ pending |
+| **Status** | Phases 2–5 merged to `main` via PR #3 (`main` @ `0b9f0e0`); Phase 6 hardening pending |
 | **Baseline** | `origin/main` @ `b8576f2` |
 | **Canonical frontend** | `stocklanda_frontend/` (as directed) |
 | **Target** | Real Solana **devnet** deployment |
@@ -89,6 +89,12 @@ swapped to official PreStocks SPL tokens. The plumbing already exists
 (`fetchPrestocks`, `resolvePrice`, `contract_address`), so this is a data/narrative
 swap, not a rewrite. The Meteora launchpad must likewise be replaced by the real
 **DBC** flow ported from PR #2.
+
+> **Correction (post-review):** these symbols actually come from the **PreStocks
+> API catalogue** (`PRESTOCKS_API`), not from Tessera. Nothing in
+> `stocklanda_frontend` references Tessera, and `fetchPrestocks()` supplies the
+> real `contract_address` values. So there is no Tessera contamination to remove;
+> wiring the official PreStocks SPL mints is a Phase 6 task (P6-3), not a rewrite.
 
 ---
 
@@ -242,6 +248,11 @@ P5-1 (PreStocks catalogue) runs parallel — required for the $10K track
 | (pending) | **Phase 4** — DBC flagship lib/api/launchpad + Meteora SDK | implemented, install/build validating |
 
 Verified with a locally provisioned Node 24: `next build` ✅, `tsc` ✅, `npm run lint` → 0 errors.
+
+**PR #3 merged** into `main` (`0b9f0e0`). **Phase 5 polish:** real `README.md`,
+removed the obsolete `DEMO_TO_PROD_HANDOFF.md`, trimmed stale display names, and
+closed the `writer != buyer` gap in the on-chain program (`buy_option.rs` +
+`ErrorCode::CannotBuyOwnOption`).
 
 ## 9. Open questions
 

@@ -76,4 +76,7 @@ pub enum ErrorCode {
 
     #[msg("Not enough basket shares supplied")]
     InsufficientShares,
+
+    #[msg("Cannot buy your own option")]
+    CannotBuyOwnOption,
 }
