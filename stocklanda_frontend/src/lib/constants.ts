@@ -4,9 +4,11 @@ export const PROGRAM_ID = new PublicKey(
   "5qNeAcUKD45g3T5osCLVk13Q8CZLtT7BWhivG5og9CMf"
 );
 
-/** RPC endpoint. Defaults to devnet for the deployed demo; override via env. */
+/** RPC endpoint. Defaults to devnet; override via env (empty values fall back). */
+const DEFAULT_RPC_URL = "https://api.devnet.solana.com";
+
 export const RPC_URL =
-  process.env.NEXT_PUBLIC_RPC_URL ?? "https://api.devnet.solana.com";
+  process.env.NEXT_PUBLIC_RPC_URL?.trim() || DEFAULT_RPC_URL;
 
 /** All prices/strikes/amounts use 6 decimals. */
 export const PRICE_DECIMALS = 1_000_000;

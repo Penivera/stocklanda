@@ -53,7 +53,7 @@ export function readRegistry(): Registry | null {
     const p =
       process.env.REGISTRY_PATH ??
       path.join(process.cwd(), "public", "registry.json");
-    return JSON.parse(fs.readFileSync(p, "utf8"));
+    return JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ p, "utf8"));
   } catch {
     return null;
   }
@@ -79,7 +79,7 @@ export function readFlagship(): FlagshipRegistry | null {
     const p =
       process.env.FLAGSHIP_PATH ??
       path.join(process.cwd(), "public", "flagship.json");
-    return JSON.parse(fs.readFileSync(p, "utf8"));
+    return JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ p, "utf8"));
   } catch {
     return null;
   }
