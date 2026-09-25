@@ -25,7 +25,7 @@ const KEYPAIR_PATH =
   path.join(os.homedir(), ".config", "solana", "id.json");
 const IDL_PATH = path.resolve(__dirname, "../src/idl/stockforge.json");
 const PROGRAM_ID = new PublicKey(
-  "E4t7DUwrLKgxpGb88686DtqrRqnHd5GCKE3ASwR8SCwi"
+  "5qNeAcUKD45g3T5osCLVk13Q8CZLtT7BWhivG5og9CMf"
 );
 
 const SEED = {
@@ -358,13 +358,11 @@ async function main() {
       },
     ],
   };
-  const publicDir = path.resolve(__dirname, "../public");
-  fs.mkdirSync(publicDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(publicDir, "registry.json"),
-    JSON.stringify(registry, null, 2)
-  );
-  console.log("registry written to public/registry.json");
+  const registryOut =
+    process.env.REGISTRY_PATH ?? path.resolve(__dirname, "../public/registry.json");
+  fs.mkdirSync(path.dirname(registryOut), { recursive: true });
+  fs.writeFileSync(registryOut, JSON.stringify(registry, null, 2));
+  console.log("registry written to", registryOut);
   console.log(
     JSON.stringify(
       {

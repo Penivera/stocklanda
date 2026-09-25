@@ -10,7 +10,7 @@ pub use constants::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("E4t7DUwrLKgxpGb88686DtqrRqnHd5GCKE3ASwR8SCwi");
+declare_id!("5qNeAcUKD45g3T5osCLVk13Q8CZLtT7BWhivG5og9CMf");
 
 #[program]
 pub mod stockforge {

@@ -85,3 +85,74 @@ PreStocks bounty eligibility.
 | `npm run lint` | ESLint |
 | `npm run seed` | Seed mints/config/options/basket + `registry.json` |
 | `npm run launch:flagship` | Launch the Meteora DBC `$FORGE` pool |
+
+## Docker / VPS deployment
+
+A `Dockerfile` and a repo-root `docker-compose.yml` are provided.
+
+```bash
+# from the repo root
+mkdir -p secrets data
+cp /path/to/devnet/id.json secrets/id.json   # deployer/admin keypair (never baked into the image)
+
+docker compose up -d --build                 # serves on :3000
+```
+
+The compose file mounts `./secrets` (read-only, keypair) and `./data`
+(`registry.json`, `flagship.json`) and points the server at them via
+`KEYPAIR_PATH` / `REGISTRY_PATH` / `FLAGSHIP_PATH`, so chain metadata can be
+updated without rebuilding. `NEXT_PUBLIC_RPC_URL` and `NEXT_PUBLIC_PYTH_API_KEY`
+are passed as build args (they are inlined into the client bundle).
+
+One-off admin jobs run in the same image:
+
+```bash
+docker compose --profile admin run --rm admin npm run seed
+docker compose --profile admin run --rm admin npm run launch:flagship
+```
+
+Notes:
+- The image is a non-standalone Next.js build (full `node_modules`) for
+  robustness with the dynamic server routes; expect a ~1 GB image.
+- `next/font/google` fetches fonts during `docker build`, so the builder needs
+  outbound network access.
+- The `web` container exposes `/api/faucet`, `/api/settle` and `/api/flagship`,
+  which use the mounted keypair. Keep that key funded and treat the container as
+  privileged infrastructure.
+
+## Deploying with Coolify
+
+This is a monorepo (`stockforge/` + `stocklanda_frontend/`), so use the
+**Dockerfile** build pack with the correct base directory.
+
+1. **New Resource** → *Public/Private Repository* → this repo + the branch to deploy.
+2. **Build Pack: Dockerfile**
+   - **Base Directory:** `/stocklanda_frontend`
+   - **Dockerfile Location:** `/Dockerfile`
+   - **Port:** `3000` (matches `EXPOSE`; the container honors Coolify's `PORT`)
+3. **Build Variables** (inlined at build time — `NEXT_PUBLIC_*` must be set here, not only at runtime)
+   - `NEXT_PUBLIC_RPC_URL=https://api.devnet.solana.com`
+   - `NEXT_PUBLIC_PYTH_API_KEY=` (optional)
+4. **Persistent Storage** — mount one volume at **`/data`** and place:
+   - `/data/id.json` — deployer/admin keypair (required by `/api/faucet`, `/api/settle`, `/api/flagship`)
+   - `/data/registry.json` — written by `npm run seed`
+   - `/data/flagship.json` — written by `npm run launch:flagship`
+
+   The image already defaults `KEYPAIR_PATH`, `REGISTRY_PATH`, and `FLAGSHIP_PATH`
+   to those paths, so no runtime env wiring is needed for storage.
+5. **Environment Variables** — add `RPC_URL=https://api.devnet.solana.com` (used by the admin scripts).
+6. **Domain** — attach a domain; Coolify's proxy fronts container port `3000`.
+7. **Deploy.** For first-time admin jobs open the container **Terminal**:
+   ```bash
+   npm run seed            # -> /data/registry.json
+   npm run launch:flagship # -> /data/flagship.json
+   ```
+
+Notes:
+- The Dockerfile's `HEALTHCHECK` hits `/`, so Coolify's health check works as-is.
+- The container runs as uid `1001`; make sure `/data/id.json` (and the JSON
+  metadata) are readable by it, e.g. `chmod 644 /data/id.json`.
+- Because `NEXT_PUBLIC_*` is compiled into the client bundle, changing the RPC URL
+  requires a **rebuild** (not just an env change + restart).
+- Coolify's Docker Compose build pack is not required here; the Dockerfile pack is
+  simpler and avoids the repo-relative bind mounts in `docker-compose.yml`.

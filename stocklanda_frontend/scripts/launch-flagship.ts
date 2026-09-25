@@ -153,13 +153,11 @@ async function main() {
     txs,
   };
 
-  const publicDir = path.resolve(__dirname, "../public");
-  fs.mkdirSync(publicDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(publicDir, "flagship.json"),
-    JSON.stringify(registry, null, 2)
-  );
-  console.log("\nflagship written to public/flagship.json");
+  const flagshipOut =
+    process.env.FLAGSHIP_PATH ?? path.resolve(__dirname, "../public/flagship.json");
+  fs.mkdirSync(path.dirname(flagshipOut), { recursive: true });
+  fs.writeFileSync(flagshipOut, JSON.stringify(registry, null, 2));
+  console.log("\nflagship written to", flagshipOut);
   console.log(JSON.stringify(registry, null, 2));
 }
 

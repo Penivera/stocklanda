@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 
 export const PROGRAM_ID = new PublicKey(
-  "E4t7DUwrLKgxpGb88686DtqrRqnHd5GCKE3ASwR8SCwi"
+  "5qNeAcUKD45g3T5osCLVk13Q8CZLtT7BWhivG5og9CMf"
 );
 
 /** RPC endpoint. Defaults to devnet for the deployed demo; override via env. */

@@ -24,7 +24,7 @@ const KEYPAIR_PATH =
   "\\\\wsl.localhost\\Ubuntu\\home\\edmund\\.config\\solana\\id.json";
 const IDL_PATH = path.resolve(__dirname, "../../target/idl/stockforge.json");
 const PROGRAM_ID = new PublicKey(
-  "E4t7DUwrLKgxpGb88686DtqrRqnHd5GCKE3ASwR8SCwi"
+  "5qNeAcUKD45g3T5osCLVk13Q8CZLtT7BWhivG5og9CMf"
 );
 
 const SEED = {
