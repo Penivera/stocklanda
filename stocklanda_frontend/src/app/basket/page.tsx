@@ -2,15 +2,25 @@
 
 import { ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { BN } from "@anchor-lang/core";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
+import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddressSync,
+} from "@solana/spl-token";
 import { useEffect, useMemo, useState } from "react";
 import {
   basketNav,
   useBaskets,
   usePriceMap,
+  useProgram,
   useRegistry,
 } from "@/lib/hooks";
-import { shortKey, token } from "@/lib/format";
-import { useDemoStore } from "@/store/demoStore";
+import { basketMintPda, basketPda, configPda } from "@/lib/pda";
+import { ensureAta } from "@/lib/tx";
+import { fromUi, shortKey, token } from "@/lib/format";
 
 // Helper to reliably extract a base58 string from either PublicKey or string
 const toBase58Str = (key: any): string => {
@@ -21,9 +31,11 @@ const toBase58Str = (key: any): string => {
 };
 
 export default function BasketComposer() {
-  // --- DEMO STORE ---
-  const walletAddress = useDemoStore((s) => s.walletAddress);
-  const storeBalances = useDemoStore((s) => s.balances);
+  // --- REAL WEB3 ---
+  const { connection } = useConnection();
+  const wallet = useWallet();
+  const program = useProgram();
+  const walletAddress = wallet.publicKey?.toBase58() ?? null;
 
   // --- DATA HOOKS ---
   const registry = useRegistry();
@@ -43,6 +55,9 @@ export default function BasketComposer() {
     mint: string;
     nav: number;
   } | null>(null);
+
+  // On-chain share balances, keyed by basket publicKey
+  const [balances, setBalances] = useState<Record<string, number>>({});
 
   // Composer State
   const [basketName, setBasketName] = useState("AI Titans");
@@ -97,19 +112,33 @@ export default function BasketComposer() {
     }
   }, [tradableAssets, allocations]);
 
-  // Derive basket share balances from the Zustand store
-  // Keyed by basket publicKey (matching the JSX access pattern)
-  const balances = useMemo(() => {
-    const result: Record<string, number> = {};
-    (baskets ?? []).forEach((b: any) => {
-      const pubkeyStr = toBase58Str(b?.publicKey);
-      const name = b?.account?.name ?? "";
-      if (pubkeyStr && name) {
-        result[pubkeyStr] = storeBalances[`SHARE-${name}`] ?? 0;
+  // Derive on-chain share balances per basket (keyed by basket publicKey)
+  useEffect(() => {
+    if (!wallet.publicKey || baskets.length === 0) return;
+    let active = true;
+    (async () => {
+      try {
+        const entries = await Promise.all(
+          baskets.map(async (b: any) => {
+            const mint = b.account.shareMint as PublicKey;
+            const ata = getAssociatedTokenAddressSync(mint, wallet.publicKey!, true);
+            try {
+              const bal = await connection.getTokenAccountBalance(ata);
+              return [b.publicKey.toBase58(), bal.value.uiAmount ?? 0] as const;
+            } catch {
+              return [b.publicKey.toBase58(), 0] as const;
+            }
+          })
+        );
+        if (active) setBalances(Object.fromEntries(entries));
+      } catch {
+        /* ignore RPC errors */
       }
-    });
-    return result;
-  }, [baskets, storeBalances]);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [wallet.publicKey, baskets, connection, busy]);
 
   const handleSliderChange = (id: string, value: number) => {
     setAllocations((prev) => ({ ...prev, [id]: value }));
@@ -148,39 +177,47 @@ export default function BasketComposer() {
   };
 
   const createBasket = async () => {
-    if (!walletAddress) return;
+    if (!wallet.publicKey) return;
     await run("create", async () => {
+      const creator = wallet.publicKey!;
+      const nonce = Date.now() % 1_000_000_000;
+      const basket = basketPda(creator, nonce);
+      const shareMint = basketMintPda(basket);
+
       const components = Object.entries(allocations)
-        .filter(([_, weight]) => weight > 0)
-        .map(([mint, weight]) => {
-          const sym = registry?.symbolByMint?.[mint] ?? "UNKNOWN";
-          return { symbol: sym, weight };
-        });
+        .filter(([, weight]) => weight > 0)
+        .map(([mint, weight]) => ({
+          mint: new PublicKey(mint),
+          amountPerUnit: fromUi(units[mint] ?? 1),
+          weightBps: Math.round(weight * 100),
+        }));
 
       if (components.length === 0) throw new Error("Must select at least one component");
 
-      await new Promise((res) => setTimeout(res, 800));
-      const txSig = useDemoStore.getState().createBasket({
-        name: basketName,
-        components,
-      });
-
-      // Grab the newly created basket for the modal
-      const allBaskets = useDemoStore.getState().baskets;
-      const lastBasket = allBaskets[allBaskets.length - 1];
+      const sig = await program.methods
+        .createBasket(new BN(nonce), basketName, components)
+        .accounts({
+          creator,
+          config: configPda(),
+          basket,
+          shareMint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
 
       setCreatedModal({
         name: basketName,
-        mint: lastBasket?.shareMint ?? "DemoMint",
+        mint: shareMint.toBase58(),
         nav: estimatedNAV,
       });
 
-      return txSig;
+      return sig;
     });
   };
 
   const mintShare = async (b: any, unitCount: string) => {
-    if (!walletAddress) return;
+    if (!wallet.publicKey) return;
 
     const pubkeyStr = toBase58Str(b?.publicKey);
     if (!pubkeyStr) return;
@@ -188,21 +225,45 @@ export default function BasketComposer() {
     const key = `mint-${pubkeyStr}`;
 
     await run(key, async () => {
-      const storeBasket = useDemoStore.getState().baskets.find(
-        (basket) => basket.publicKey === pubkeyStr
-      );
-      if (!storeBasket) throw new Error("Basket not found");
-
       const safeUnits = Math.max(0, Number(unitCount) || 0);
       if (safeUnits === 0) throw new Error("Invalid unit count");
 
-      await new Promise((res) => setTimeout(res, 800));
-      return useDemoStore.getState().mintBasketShare(storeBasket.id, safeUnits);
+      const user = wallet.publicKey!;
+      const rem: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = [];
+      const ixs = [];
+      for (const c of b.account.components) {
+        const cmint = c.mint as PublicKey;
+        const vault = getAssociatedTokenAddressSync(cmint, b.publicKey, true);
+        const vaultRes = await ensureAta(connection, user, b.publicKey, cmint);
+        const srcRes = await ensureAta(connection, user, user, cmint);
+        if (vaultRes.ix) ixs.push(vaultRes.ix);
+        if (srcRes.ix) ixs.push(srcRes.ix);
+        rem.push({ pubkey: cmint, isWritable: true, isSigner: false });
+        rem.push({ pubkey: vault, isWritable: true, isSigner: false });
+        rem.push({ pubkey: srcRes.address, isWritable: true, isSigner: false });
+      }
+      const userShare = await ensureAta(connection, user, user, b.account.shareMint);
+      if (userShare.ix) ixs.push(userShare.ix);
+
+      return program.methods
+        .mintBasket(new BN(Math.round(safeUnits * 1e6)))
+        .accounts({
+          user,
+          basket: b.publicKey,
+          shareMint: b.account.shareMint,
+          userShare: userShare.address,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .remainingAccounts(rem)
+        .preInstructions(ixs)
+        .rpc();
     });
   };
 
   const redeemShare = async (b: any, unitCount: string) => {
-    if (!walletAddress) return;
+    if (!wallet.publicKey) return;
 
     const pubkeyStr = toBase58Str(b?.publicKey);
     if (!pubkeyStr) return;
@@ -210,16 +271,34 @@ export default function BasketComposer() {
     const key = `redeem-${pubkeyStr}`;
 
     await run(key, async () => {
-      const storeBasket = useDemoStore.getState().baskets.find(
-        (basket) => basket.publicKey === pubkeyStr
-      );
-      if (!storeBasket) throw new Error("Basket not found");
-
       const safeUnits = Math.max(0, Number(unitCount) || 0);
       if (safeUnits === 0) throw new Error("Invalid unit count");
 
-      await new Promise((res) => setTimeout(res, 800));
-      return useDemoStore.getState().redeemBasketShare(storeBasket.id, safeUnits);
+      const user = wallet.publicKey!;
+      const rem: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = [];
+      const ixs = [];
+      for (const c of b.account.components) {
+        const cmint = c.mint as PublicKey;
+        const vault = getAssociatedTokenAddressSync(cmint, b.publicKey, true);
+        const destRes = await ensureAta(connection, user, user, cmint);
+        if (destRes.ix) ixs.push(destRes.ix);
+        rem.push({ pubkey: cmint, isWritable: true, isSigner: false });
+        rem.push({ pubkey: vault, isWritable: true, isSigner: false });
+        rem.push({ pubkey: destRes.address, isWritable: true, isSigner: false });
+      }
+      const userShare = getAssociatedTokenAddressSync(b.account.shareMint, user, true);
+      return program.methods
+        .redeemBasket(new BN(Math.round(safeUnits * 1e6)))
+        .accounts({
+          user,
+          basket: b.publicKey,
+          shareMint: b.account.shareMint,
+          userShare,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .remainingAccounts(rem)
+        .preInstructions(ixs)
+        .rpc();
     });
   };
 
@@ -383,9 +462,9 @@ export default function BasketComposer() {
               const nav = basketNav(b, prices);
               const pubkeyStr = toBase58Str(b?.publicKey);
               const shareMintStr = toBase58Str(b?.account?.shareMint);
-              
+
               if (!pubkeyStr) return null;
-              
+
               const bal = balances[pubkeyStr] ?? 0;
               const name = b?.account?.name ?? "Unknown Basket";
 

@@ -79,6 +79,7 @@ export async function pythLatest(
 }
 
 const FALLBACK: Record<string, number> = {
+  USDC: 1,
   NVDA: 121.4,
   MSFT: 417.2,
   AAPL: 228.6,

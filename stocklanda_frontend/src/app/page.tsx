@@ -1,13 +1,16 @@
 "use client";
 
-import { useMemo } from "react";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { PublicKey } from "@solana/web3.js";
+import { getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { useEffect, useMemo, useState } from "react";
 import {
   basketNav,
   useBaskets,
+  useOptions,
   usePriceMap,
   useRegistry,
 } from "@/lib/hooks";
-import { useDemoStore } from "@/store/demoStore";
 
 // Helper to reliably extract a base58 string from either PublicKey or string
 const toBase58Str = (key: any): string => {
@@ -17,33 +20,92 @@ const toBase58Str = (key: any): string => {
   return String(key);
 };
 
+function statusOf(account: any): string {
+  const s = account?.status;
+  if (s?.open !== undefined) return "OPEN";
+  if (s?.active !== undefined) return "ACTIVE";
+  if (s?.settled !== undefined) return "SETTLED";
+  if (s?.cancelled !== undefined) return "CANCELLED";
+  return "UNKNOWN";
+}
+
+function typeOf(account: any): "CALL" | "PUT" {
+  return account?.optionType?.put !== undefined ? "PUT" : "CALL";
+}
+
 export default function Dashboard() {
-  // --- DEMO STORE ---
-  const walletAddress = useDemoStore((s) => s.walletAddress);
-  const storeBalances = useDemoStore((s) => s.balances);
-  const storeActivity = useDemoStore((s) => s.activity);
+  const { connection } = useConnection();
+  const wallet = useWallet();
+  const walletAddress = wallet.publicKey?.toBase58() ?? null;
 
   const registry = useRegistry();
   const baskets = useBaskets();
-  const prices = usePriceMap(registry, [], baskets);
+  const options = useOptions();
+  const prices = usePriceMap(registry, options, baskets);
 
-  // Convert symbol-keyed store balances → mint-address-keyed balances
-  // so the portfolio computation logic stays unchanged
-  const balances = useMemo(() => {
-    const result: Record<string, number> = {};
-    (registry?.mints ?? []).forEach((m) => {
-      result[m.address] = storeBalances[m.symbol] ?? 0;
-    });
-    // Map basket share balances to their shareMint addresses
-    (baskets ?? []).forEach((b: any) => {
-      const shareMint = toBase58Str(b?.account?.shareMint);
-      const name = b?.account?.name ?? "";
-      if (shareMint && name) {
-        result[shareMint] = storeBalances[`SHARE-${name}`] ?? 0;
+  const [rawBalances, setRawBalances] = useState<Record<string, number>>({});
+  const [rawActivity, setRawActivity] = useState<any[]>([]);
+  const balances = useMemo(
+    () => (wallet.publicKey ? rawBalances : {}),
+    [wallet.publicKey, rawBalances]
+  );
+  const activity = useMemo(
+    () => (wallet.publicKey ? rawActivity : []),
+    [wallet.publicKey, rawActivity]
+  );
+
+  // On-chain token balances for registry mints + basket share mints
+  useEffect(() => {
+    if (!wallet.publicKey) return;
+    let active = true;
+    (async () => {
+      const mints = [
+        ...(registry?.mints ?? []).map((m) => m.address),
+        ...(baskets ?? []).map((b: any) => toBase58Str(b?.account?.shareMint)),
+      ].filter(Boolean);
+
+      try {
+        const entries = await Promise.all(
+          mints.map(async (mint) => {
+            try {
+              const ata = getAssociatedTokenAddressSync(
+                new PublicKey(mint),
+                wallet.publicKey!,
+                true
+              );
+              const bal = await connection.getTokenAccountBalance(ata);
+              return [mint, bal.value.uiAmount ?? 0] as const;
+            } catch {
+              return [mint, 0] as const;
+            }
+          })
+        );
+        if (active) setRawBalances(Object.fromEntries(entries));
+      } catch {
+        /* ignore RPC errors */
       }
-    });
-    return result;
-  }, [registry, storeBalances, baskets]);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [wallet.publicKey, registry, baskets, connection]);
+
+  // Recent on-chain activity
+  useEffect(() => {
+    if (!wallet.publicKey) return;
+    let active = true;
+    connection
+      .getSignaturesForAddress(wallet.publicKey, { limit: 6 })
+      .then((sigs) => {
+        if (active) setRawActivity(sigs);
+      })
+      .catch(() => {
+        /* ignore */
+      });
+    return () => {
+      active = false;
+    };
+  }, [wallet.publicKey, connection]);
 
   // 1. Compute Total Portfolio Value from holdings × oracle prices (guarded against NaN)
   const totalValue = useMemo(() => {
@@ -72,7 +134,16 @@ export default function Dashboard() {
     return sum;
   }, [balances, prices, registry, baskets]);
 
-  // 2. Basket metrics: count baskets created by user vs baskets where user owns shares
+  // 2. Option metrics
+  const optionStats = useMemo(() => {
+    const active = (options ?? []).filter((o) => statusOf(o.account) === "ACTIVE");
+    const open = (options ?? []).filter((o) => statusOf(o.account) === "OPEN");
+    const calls = active.filter((o) => typeOf(o.account) === "CALL").length;
+    const puts = active.filter((o) => typeOf(o.account) === "PUT").length;
+    return { active: active.length, open: open.length, calls, puts };
+  }, [options]);
+
+  // 3. Basket metrics: count baskets created by user vs baskets where user owns shares
   const basketStats = useMemo(() => {
     if (!walletAddress) return { total: 0, minted: 0, holding: 0 };
 
@@ -118,7 +189,7 @@ export default function Dashboard() {
             <p className="text-slate-300 font-mono text-sm flex items-center space-x-1">
               <span className="text-[10px] text-emerald-400">●</span>
               <span className="text-slate-400 text-xs">
-                {walletAddress ? "Demo Mode" : "Wallet not connected"}
+                {walletAddress ? "Devnet" : "Wallet not connected"}
               </span>
             </p>
             <div className="absolute right-6 bottom-6 text-xs font-mono text-slate-600 hidden md:block uppercase">
@@ -131,9 +202,11 @@ export default function Dashboard() {
             <div className="bg-slate-900/40 rounded-xl p-5 md:p-6 border border-slate-800 flex flex-col justify-between transition-colors hover:bg-slate-800/30">
               <p className="text-slate-400 text-xs md:text-sm font-mono mb-4">Active Options</p>
               <div>
-                <p className="text-2xl md:text-3xl font-sans font-bold text-white mb-1">0</p>
+                <p className="text-2xl md:text-3xl font-sans font-bold text-white mb-1">
+                  {optionStats.active}
+                </p>
                 <p className="text-slate-500 text-[10px] md:text-xs font-mono uppercase">
-                  0 calls • 0 puts
+                  {optionStats.calls} calls • {optionStats.puts} puts
                 </p>
               </div>
             </div>
@@ -151,9 +224,9 @@ export default function Dashboard() {
             </div>
 
             <div className="bg-slate-900/40 rounded-xl p-5 md:p-6 border border-slate-800 flex flex-col justify-between transition-colors hover:bg-slate-800/30">
-              <p className="text-slate-400 text-xs md:text-sm font-mono mb-4">Unrealized P&L</p>
+              <p className="text-slate-400 text-xs md:text-sm font-mono mb-4">Open Listings</p>
               <p className="text-xl md:text-2xl font-sans font-bold text-white">
-                +$0.00
+                {optionStats.open}
               </p>
             </div>
 
@@ -177,27 +250,31 @@ export default function Dashboard() {
               <p className="text-xs font-mono text-slate-500 py-4 text-center">
                 Connect wallet to view recent activity
               </p>
-            ) : storeActivity.length === 0 ? (
+            ) : activity.length === 0 ? (
               <p className="text-xs font-mono text-slate-500 py-4 text-center">
                 No recent transactions found
               </p>
             ) : (
-              storeActivity.slice(0, 6).map((activity) => (
-                <div key={activity.id} className="flex justify-between items-start">
-                  <div>
-                    <p className="font-sans text-sm font-bold text-white">{activity.title}</p>
+              activity.map((tx) => (
+                <div key={tx.signature} className="flex justify-between items-start">
+                  <div className="min-w-0">
+                    <p className="font-mono text-xs text-white truncate">
+                      {tx.signature.slice(0, 16)}…
+                    </p>
                     <p className="text-slate-500 text-[10px] font-mono mt-0.5 uppercase">
-                      {activity.action} • {activity.time}
+                      {tx.blockTime
+                        ? new Date(tx.blockTime * 1000).toLocaleString()
+                        : "pending"}
                     </p>
                   </div>
                   <span
-                    className={`font-mono text-xs px-2 py-0.5 rounded ${
-                      activity.isPositive
-                        ? "text-emerald-400 bg-emerald-400/10"
-                        : "text-red-400 bg-red-400/10"
+                    className={`font-mono text-xs px-2 py-0.5 rounded shrink-0 ${
+                      tx.err
+                        ? "text-red-400 bg-red-400/10"
+                        : "text-emerald-400 bg-emerald-400/10"
                     }`}
                   >
-                    {activity.value}
+                    {tx.err ? "failed" : "success"}
                   </span>
                 </div>
               ))

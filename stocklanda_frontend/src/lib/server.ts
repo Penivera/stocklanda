@@ -16,7 +16,7 @@ const KEYPAIR_PATH =
 
 export function getServer() {
   const connection = new Connection(RPC_URL, "confirmed");
-  const raw = JSON.parse(fs.readFileSync(KEYPAIR_PATH, "utf8"));
+  const raw = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ KEYPAIR_PATH, "utf8"));
   const payer = Keypair.fromSecretKey(Uint8Array.from(raw));
   const wallet = {
     publicKey: payer.publicKey,

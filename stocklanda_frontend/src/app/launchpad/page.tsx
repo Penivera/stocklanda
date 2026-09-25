@@ -2,8 +2,8 @@
 
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { useBaskets } from "@/lib/hooks";
-import { useDemoStore } from "@/store/demoStore";
 
 // Helper to reliably extract a base58 string from either PublicKey or string
 const toBase58Str = (key: any): string => {
@@ -29,7 +29,7 @@ function LaunchpadInner() {
   const passedSymbol = searchParams.get("symbol");
   const passedNav = searchParams.get("nav");
 
-  const walletAddress = useDemoStore((s) => s.walletAddress);
+  const walletAddress = useWallet().publicKey?.toBase58() ?? null;
   const baskets = useBaskets();
 
   // Parse passedNav safely with fallback

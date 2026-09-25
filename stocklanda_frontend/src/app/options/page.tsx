@@ -1,14 +1,24 @@
 "use client";
 
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { BN } from "@anchor-lang/core";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
+import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddressSync,
+} from "@solana/spl-token";
 import { useMemo, useState } from "react";
 import {
   useConfig,
   useOptions,
   usePriceMap,
+  useProgram,
   useRegistry,
 } from "@/lib/hooks";
-import { shortKey, toUi, usd } from "@/lib/format";
-import { useDemoStore, DEMO_PRICES } from "@/store/demoStore";
+import { configPda, optionPda } from "@/lib/pda";
+import { compactIxs, ensureAta } from "@/lib/tx";
+import { fromUi, shortKey, toUi, usd } from "@/lib/format";
 
 // Helper to reliably extract a base58 string from either PublicKey or string
 const toBase58Str = (key: any): string => {
@@ -32,22 +42,25 @@ function statusOf(account: any): string {
 }
 
 export default function OptionsDesk() {
-  //  DEMO STORE 
-  const walletAddress = useDemoStore((s) => s.walletAddress);
+  // REAL WEB3
+  const { connection } = useConnection();
+  const wallet = useWallet();
+  const program = useProgram();
+  const walletAddress = wallet.publicKey?.toBase58() ?? null;
 
-  //  DATA HOOKS 
+  // DATA HOOKS
   const registry = useRegistry();
   const config = useConfig();
   const options = useOptions();
   const prices = usePriceMap(registry, options, []);
 
-  // UI STATE 
+  // UI STATE
   const [filter, setFilter] = useState<"ALL" | "CALL" | "PUT">("ALL");
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [showWrite, setShowWrite] = useState(false);
 
-  // FORM STATE 
+  // FORM STATE
   const [type, setType] = useState<"PUT" | "CALL">("PUT");
   const [underlying, setUnderlying] = useState<string>("");
   const [strike, setStrike] = useState("120");
@@ -84,50 +97,100 @@ export default function OptionsDesk() {
   };
 
   const faucet = async () => {
-    if (!walletAddress) return;
+    if (!wallet.publicKey) return;
     await run("faucet", async () => {
-      await new Promise((res) => setTimeout(res, 800));
-      return useDemoStore.getState().faucet();
+      const res = await fetch("/api/faucet", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ wallet: wallet.publicKey!.toBase58() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "faucet failed");
+      return json.signature ?? "funded";
     });
   };
 
   const write = async () => {
-    if (!walletAddress || !quoteMint) return;
+    if (!wallet.publicKey || !quoteMint) return;
     await run("write", async () => {
+      const writer = wallet.publicKey!;
       const sym = registry?.symbolByMint?.[underlying];
       if (!sym) throw new Error("Select an underlying asset");
+
+      const id = Date.now() % 1_000_000_000;
+      const option = optionPda(writer, id);
 
       const safeSize = Math.max(0, Number(size) || 0);
       const safeStrike = Math.max(0, Number(strike) || 0);
       const safePremium = Math.max(0, Number(premium) || 0);
       const safeMinutes = Math.max(0, Number(minutes) || 0);
-
       if (safeSize === 0 || safeStrike === 0 || safeMinutes === 0) {
         throw new Error("Invalid numeric inputs");
       }
 
-      await new Promise((res) => setTimeout(res, 800));
-      return useDemoStore.getState().writeOption({
-        underlyingSymbol: sym,
-        optionType: type,
-        strike: safeStrike,
-        size: safeSize,
-        premium: safePremium,
-        expiryMinutes: safeMinutes,
-      });
+      const isPut = type === "PUT";
+      const collateralMint = isPut ? quoteMint : new PublicKey(underlying);
+      const sizeBn = fromUi(safeSize);
+      const strikeBn = fromUi(safeStrike);
+      const collateral = isPut ? fromUi(safeSize * safeStrike) : sizeBn;
+
+      const writerCollateral = await ensureAta(connection, writer, writer, collateralMint);
+      const vault = getAssociatedTokenAddressSync(collateralMint, option, true);
+      const expiry = Math.floor(Date.now() / 1000) + safeMinutes * 60;
+
+      return program.methods
+        .listOption(
+          new BN(id),
+          isPut ? { put: {} } : { call: {} },
+          strikeBn,
+          sizeBn,
+          fromUi(safePremium),
+          collateral,
+          new BN(expiry)
+        )
+        .accounts({
+          writer,
+          config: configPda(),
+          option,
+          underlyingMint: new PublicKey(underlying),
+          collateralMint,
+          premiumMint: quoteMint,
+          writerCollateral: writerCollateral.address,
+          vault,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .preInstructions(writerCollateral.ix ? [writerCollateral.ix] : [])
+        .rpc();
     });
   };
 
   const buy = async (option: any) => {
-    if (!walletAddress) return;
+    if (!wallet.publicKey) return;
     const key = `buy-${toBase58Str(option?.publicKey)}`;
     await run(key, async () => {
-      const pubkeyStr = toBase58Str(option?.publicKey);
-      const storeOpt = useDemoStore.getState().options.find((o) => o.publicKey === pubkeyStr);
-      if (!storeOpt) throw new Error("Option not found");
-
-      await new Promise((res) => setTimeout(res, 800));
-      return useDemoStore.getState().buyOption(storeOpt.id);
+      const buyer = wallet.publicKey!;
+      const a = option.account;
+      const premiumMint = a.premiumMint;
+      const [buyerAta, writerAta] = await Promise.all([
+        ensureAta(connection, buyer, buyer, premiumMint),
+        ensureAta(connection, buyer, a.writer, premiumMint),
+      ]);
+      const { ix } = compactIxs([buyerAta, writerAta]);
+      return program.methods
+        .buyOption()
+        .accounts({
+          buyer,
+          config: configPda(),
+          option: option.publicKey,
+          premiumMint,
+          buyerPremium: buyerAta.address,
+          writerPremium: writerAta.address,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .preInstructions(ix)
+        .rpc();
     });
   };
 
@@ -137,14 +200,14 @@ export default function OptionsDesk() {
 
     const key = `settle-${pubkeyStr}`;
     await run(key, async () => {
-      const storeOpt = useDemoStore.getState().options.find((o) => o.publicKey === pubkeyStr);
-      if (!storeOpt) throw new Error("Option not found");
-
-      // Use demo price for the underlying as settlement price
-      const settlementPrice = DEMO_PRICES[storeOpt.underlyingSymbol] ?? 0;
-
-      await new Promise((res) => setTimeout(res, 800));
-      return useDemoStore.getState().settleOption(storeOpt.id, settlementPrice);
+      const res = await fetch("/api/settle", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ option: pubkeyStr }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "settle failed");
+      return json.signature ?? "settled";
     });
   };
 
@@ -346,17 +409,17 @@ export default function OptionsDesk() {
 
               const t = typeOf(a);
               const st = statusOf(a);
-              
+
               const underlyingMintStr = toBase58Str(a.underlyingMint);
               const symbol = symbolOf(underlyingMintStr);
               const spot = prices[underlyingMintStr]?.usd ?? 0;
-              
+
               const strikeVal = toUi(a.strike);
               const itm = t === "PUT" ? spot > 0 && spot < strikeVal : spot > 0 && spot > strikeVal;
-              
+
               const expiryNum = a.expiry ? Number(a.expiry.toString()) : 0;
               const expired = expiryNum > 0 && Date.now() / 1000 >= expiryNum;
-              
+
               const pubkeyStr = toBase58Str(o.publicKey);
               const writerStr = toBase58Str(a.writer);
               const buyerStr = toBase58Str(a.buyer);
