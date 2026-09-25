@@ -45,8 +45,8 @@ function log(msg: string) {
  */
 async function fundWallet(
   connection: web3.Connection,
-  payer: Keypair,
-  to: PublicKey,
+  payer: web3.Keypair,
+  to: web3.PublicKey,
   lamports: number
 ) {
   if (RPC.includes("127.0.0.1") || RPC.includes("localhost")) {
@@ -119,10 +119,10 @@ async function main() {
   // creating a new one (list_option checks the collateral against config.quote_mint).
   const existingConfig = await connection.getAccountInfo(config);
   log("Creating mints");
-  let usdc: PublicKey;
+  let usdc: web3.PublicKey;
   if (existingConfig) {
-    const cfg: any = await program.account.config.fetch(config);
-    usdc = cfg.quoteMint as PublicKey;
+    const cfg: any = await (program.account as any).config.fetch(config);
+    usdc = cfg.quoteMint as web3.PublicKey;
     console.log("reusing existing config quoteMint:", usdc.toBase58());
   } else {
     usdc = await createMint(connection, payer, payer.publicKey, null, 6);
