@@ -217,18 +217,10 @@ The repo ships a multi-stage `stocklanda_frontend/Dockerfile` and a Coolify comp
 
 See `stocklanda_frontend/README.md` for the full walkthrough.
 
-## Bounty alignment
 
-| Track | How StockForge qualifies |
-|---|---|
-| **Main Track** | A real on-chain product combining trading (options), investing (baskets) and new collateral primitives |
-| **PreStocks ($10K)** | 100% PreStocks-compliant: all pre-IPO exposure comes from the PreStocks API and its SPL tokens; **no Tessera / non-PreStocks tokens** |
-| **Meteora DBC ($5K)** | A live flagship DBC launch with a linear fee scheduler, dynamic fees, permanently locked LP and a custom DAMM v2 graduation tier |
-| **Pyth Network** | Mission-critical to basket NAV and automated option settlement (`settle_option_pyth`) |
+## Design decisions 
 
-## Design decisions & compliance
 
-- **Tessera / T-tokens removed.** The PreStocks bounty rules disqualify projects that integrate non-PreStocks pre-IPO tokens, so all pre-IPO exposure comes from PreStocks.
 - **Baskets decoupled from Meteora DBC.** A bonding-curve pool would collect the *quote currency* rather than the underlying equities, breaking the 1:1 promise of an ETF. Baskets are Anchor vaults; the DBC is reserved for the separate `$FORGE` flagship.
 - **Dual settlement routing.** Public equities settle from an on-chain **Pyth** price account; pre-IPO assets settle from an **admin-attested** price (with a freshness window), because no Pyth feed exists for unlisted companies.
 - **Permissionless settlement.** Solana programs can't run on a timer, so settlement is a permissionless crank with an incentive split, ensuring expired contracts get resolved.
@@ -244,7 +236,7 @@ See `stocklanda_frontend/README.md` for the full walkthrough.
 
 ## Contributors
 
-Built for the Stocklana hackathon by **Edmund Antai (Devonlegend)**, **ohotuowo-morgan**, and **Peniel Ben (Penivera)**.
+Built for the Stocklana hackathon by **Edmund Antai (Devonlegend)**, **ohotuowo-morgan**,**Peniel Ben (Penivera)**, and **precious**.
 
 ## License
 
