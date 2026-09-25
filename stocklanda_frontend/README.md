@@ -117,8 +117,10 @@ Coolify runs the repo-root `docker-compose.yml`. For the `web` service set:
 2. **`SERVICE_PORT_WEB=3000`** so the proxy targets the container port.
 3. **Build Variables** (inlined at build time): `NEXT_PUBLIC_RPC_URL`,
    `NEXT_PUBLIC_PYTH_API_KEY`.
-4. **Persistent Storage** — a volume mounted at **`/data`** containing
-   `id.json`, `registry.json`, `flagship.json`.
+4. **Data files** — the compose bind-mounts the host dir
+   `${STOCKLANDA_DATA_DIR:-/srv/stocklanda}` to `/data`. On the VPS create it and
+   put `id.json`, `registry.json`, `flagship.json` in it, then
+   `chown -R 1001:1001 /srv/stocklanda`.
 
 > **"Bind for 0.0.0.0:3000 failed: port is already allocated"** means the compose
 > is publishing a host port. The Coolify compose deliberately uses `expose: "3000"`
