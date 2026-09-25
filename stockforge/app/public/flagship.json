@@ -1,0 +1,17 @@
+{
+  "network": "devnet",
+  "name": "StockForge Governance",
+  "symbol": "FORGE",
+  "config": "J4vgUv18vGD3W789LmmnwquQVqExANiuH8C4oFcqQ2Eg",
+  "baseMint": "6jpJvmn9pNnBZk58LhnGZ6EEQUpA1QhaSHMoCNQDR3zM",
+  "pool": "CvHThmA4w7z9Wqj3wNtH2roTJicGRuXgJVwx2TSJm3Q4",
+  "quoteMint": "So11111111111111111111111111111111111111112",
+  "quoteSymbol": "SOL",
+  "decimals": 6,
+  "totalSupply": "1000000000",
+  "createdAt": "2026-09-24T14:09:15.921Z",
+  "txs": {
+    "config": "3FjErSZdFPSrxdSW2t76pG5FNiApNt9pkjWizpHmg9NUUpas3RwnsojXA6iTzqTS39e4GsLJD1FkDJd98TEu4Nw6",
+    "pool": "3jN21hj1iwJd6RWDp2zH8H7EfrwCZ7awrkD6uYphDT4hG8fLvDLY8KYdaQPsrCLk827QwCd1LsNeR9tBwtEvi3Eu"
+  }
+}

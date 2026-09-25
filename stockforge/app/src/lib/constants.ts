@@ -22,3 +22,10 @@ export const SEED = {
 /** Off-chain price feeds used by the UI. */
 export const PRESTOCKS_API = "https://prestocks.com/api/prestocks";
 export const PYTH_HERMES = "https://hermes.pyth.network";
+
+/** Wrapped SOL — used as the quote asset for the Meteora DBC flagship launch. */
+export const SOL_MINT = "So11111111111111111111111111111111111111112";
+
+/** Meteora Dynamic Bonding Curve program (same address on devnet & mainnet). */
+export const DBC_PROGRAM_ID =
+  "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN";

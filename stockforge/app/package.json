@@ -7,10 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "launch:flagship": "tsx scripts/launch-flagship.ts"
   },
   "dependencies": {
     "@anchor-lang/core": "^1.2.0",
+    "@meteora-ag/dynamic-bonding-curve-sdk": "^1.5.13",
     "@solana/spl-token": "^0.4.9",
     "@solana/wallet-adapter-base": "^0.9.23",
     "@solana/wallet-adapter-phantom": "^0.9.24",

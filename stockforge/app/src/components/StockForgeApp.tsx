@@ -4,15 +4,17 @@ import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { useEffect, useState } from "react";
 import OptionsDesk from "./OptionsDesk";
 import Baskets from "./Baskets";
+import Flagship from "./Flagship";
 import { Badge, Card } from "./ui";
 import { fetchPrestocks, resolvePrice, type AssetPrice } from "@/lib/prices";
 import { RPC_URL } from "@/lib/constants";
 
-type Tab = "options" | "baskets" | "markets";
+type Tab = "options" | "baskets" | "launch" | "markets";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "options", label: "Options desk" },
   { id: "baskets", label: "Basket ETFs" },
+  { id: "launch", label: "Flagship launch" },
   { id: "markets", label: "Markets" },
 ];
 
@@ -164,6 +166,7 @@ export default function StockForgeApp() {
       <main className="mx-auto max-w-7xl px-5 py-6">
         {tab === "options" ? <OptionsDesk /> : null}
         {tab === "baskets" ? <Baskets /> : null}
+        {tab === "launch" ? <Flagship /> : null}
         {tab === "markets" ? <Markets /> : null}
       </main>
 

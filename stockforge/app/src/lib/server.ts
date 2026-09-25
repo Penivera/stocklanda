@@ -51,3 +51,27 @@ export function readRegistry(): Registry | null {
     return null;
   }
 }
+
+export interface FlagshipRegistry {
+  network: string;
+  name: string;
+  symbol: string;
+  config: string;
+  baseMint: string;
+  pool: string;
+  quoteMint: string;
+  quoteSymbol: string;
+  decimals: number;
+  totalSupply: string;
+  createdAt: string;
+  txs: Record<string, string>;
+}
+
+export function readFlagship(): FlagshipRegistry | null {
+  try {
+    const p = path.join(process.cwd(), "public", "flagship.json");
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch {
+    return null;
+  }
+}

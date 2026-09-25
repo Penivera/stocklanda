@@ -3,6 +3,45 @@
 All notable changes to StockForge. This entry covers the initial end-to-end
 implementation built for the Stocklana hackathon (target deadline 2026-09-25).
 
+## [0.2.0] — 2026-09-24
+
+### Meteora DBC flagship launch ($5K track)
+
+Separate from the asset-backed ETF vaults (per `review.md` §3), the project now
+ships a dedicated flagship token launch on Meteora's **Dynamic Bonding Curve**,
+with equity-like curve mechanics.
+
+- **SDK**: added `@meteora-ag/dynamic-bonding-curve-sdk` (v1.5.13).
+- **Curve (`app/src/lib/flagship.ts`)**: a `buildCurve` config for
+  "StockForge Governance" ($FORGE, 1B supply, 6dp, immutable):
+  - **Linear base-fee scheduler** decaying `300 → 50 bps` over 12 periods
+    (24h), dynamic fee enabled (capped at ~20% of the minimum base fee).
+  - **5000 bps of permanently locked LP** in the graduated pool (satisfies the
+    minimum-locked-liquidity rule).
+  - **Custom DAMM v2 graduation tier**: `MigrationFeeOption.Customizable` with
+    a 100 bps (`1%`) graduated pool fee + dynamic fee, migrating to a DAMM v2
+    pool after a **5 SOL** quote threshold.
+  - Quote asset is **wrapped SOL** (permissionless-supported on devnet &
+    mainnet), so the DBC program is live without a token badge.
+- **Launch script (`app/scripts/launch-flagship.ts`, `npm run launch:flagship`)**:
+  builds the curve, runs `partner.createConfig` then `creator.createPool`,
+  derives the pool PDA with `deriveDbcPoolAddress`, optionally does a first buy
+  (`FIRST_BUY_SOL`), and writes `app/public/flagship.json`. Targets devnet by
+  default (`RPC_URL=https://api.devnet.solana.com`).
+- **API (`app/src/app/api/flagship/route.ts`)**:
+  - `GET` returns live pool state (spot price in SOL, quote/base reserves,
+    curve progress, migration status, market cap) read through the SDK.
+  - `POST` builds **unsigned** buy/sell transactions with `swapQuote2` slippage
+    floors and `swap2` (`SwapMode.PartialFill`); the connected wallet signs and
+    submits, keeping the DBC SDK out of the client bundle.
+- **UI (`app/src/components/Flagship.tsx` + new "Flagship launch" tab)**: live
+  stats, a graduation progress bar, wallet SOL/$FORGE balances, amount/slippage
+  inputs, and buy/sell actions. Before launch it shows the curve design and the
+  exact commands to run.
+
+`next build` and `tsc --noEmit` pass; the client bundle is unchanged except for
+the new tab (~1 kB).
+
 ## [0.1.0] — 2026-09-23
 
 ### 0. Scope decisions (resolving the PRD ↔ review conflict)
@@ -182,8 +221,9 @@ npm run dev --prefix stockforge/app      # http://localhost:3000
   `NEXT_PUBLIC_PYTH_API_KEY` is set. Feed **discovery** still works, and the
   on-chain `settle_option_pyth` path is complete but untested against a live
   feed.
-- **Meteora DBC flagship launch** (for the $5K Meteora bounty) is not yet
-  implemented.
+- **Meteora DBC flagship launch** is implemented (curved launch + UI + API);
+  it has not yet been executed against a funded devnet key, so
+  `public/flagship.json` is absent until `npm run launch:flagship` is run.
 - **Program-side hardening not done**: an admin can still redirect the `treasury`
   token account on settlement (the account is caller-supplied, only constrained
   by collateral mint), there is no `create_basket` fee/dust guard, and there are
