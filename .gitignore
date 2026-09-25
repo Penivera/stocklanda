@@ -1,0 +1,7 @@
+# --- Docker / VPS runtime ---
+# Never commit the deployer keypair or generated chain metadata.
+/secrets/
+/data/
+.env
+.env.local
+.env.*.local

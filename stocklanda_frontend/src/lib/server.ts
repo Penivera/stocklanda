@@ -50,7 +50,9 @@ export interface Registry {
 
 export function readRegistry(): Registry | null {
   try {
-    const p = path.join(process.cwd(), "public", "registry.json");
+    const p =
+      process.env.REGISTRY_PATH ??
+      path.join(process.cwd(), "public", "registry.json");
     return JSON.parse(fs.readFileSync(p, "utf8"));
   } catch {
     return null;
@@ -74,7 +76,9 @@ export interface FlagshipRegistry {
 
 export function readFlagship(): FlagshipRegistry | null {
   try {
-    const p = path.join(process.cwd(), "public", "flagship.json");
+    const p =
+      process.env.FLAGSHIP_PATH ??
+      path.join(process.cwd(), "public", "flagship.json");
     return JSON.parse(fs.readFileSync(p, "utf8"));
   } catch {
     return null;

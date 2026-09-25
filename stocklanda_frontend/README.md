@@ -85,3 +85,37 @@ PreStocks bounty eligibility.
 | `npm run lint` | ESLint |
 | `npm run seed` | Seed mints/config/options/basket + `registry.json` |
 | `npm run launch:flagship` | Launch the Meteora DBC `$FORGE` pool |
+
+## Docker / VPS deployment
+
+A `Dockerfile` and a repo-root `docker-compose.yml` are provided.
+
+```bash
+# from the repo root
+mkdir -p secrets data
+cp /path/to/devnet/id.json secrets/id.json   # deployer/admin keypair (never baked into the image)
+
+docker compose up -d --build                 # serves on :3000
+```
+
+The compose file mounts `./secrets` (read-only, keypair) and `./data`
+(`registry.json`, `flagship.json`) and points the server at them via
+`KEYPAIR_PATH` / `REGISTRY_PATH` / `FLAGSHIP_PATH`, so chain metadata can be
+updated without rebuilding. `NEXT_PUBLIC_RPC_URL` and `NEXT_PUBLIC_PYTH_API_KEY`
+are passed as build args (they are inlined into the client bundle).
+
+One-off admin jobs run in the same image:
+
+```bash
+docker compose --profile admin run --rm admin npm run seed
+docker compose --profile admin run --rm admin npm run launch:flagship
+```
+
+Notes:
+- The image is a non-standalone Next.js build (full `node_modules`) for
+  robustness with the dynamic server routes; expect a ~1 GB image.
+- `next/font/google` fetches fonts during `docker build`, so the builder needs
+  outbound network access.
+- The `web` container exposes `/api/faucet`, `/api/settle` and `/api/flagship`,
+  which use the mounted keypair. Keep that key funded and treat the container as
+  privileged infrastructure.

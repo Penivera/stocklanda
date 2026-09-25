@@ -1,0 +1,56 @@
+# StockForge frontend — VPS deployment
+#
+#   1. Create the runtime dirs on the host:
+#        mkdir -p secrets data
+#        cp /path/to/your/devnet/id.json secrets/id.json   # deployer/admin keypair
+#   2. Put the generated chain metadata in ./data (written by the seed/flagship jobs):
+#        data/registry.json   data/flagship.json
+#   3. Optionally create a .env next to this file with NEXT_PUBLIC_RPC_URL etc.
+#   4. docker compose up -d --build
+#
+# One-off admin jobs (after the program is deployed and the key is funded):
+#   docker compose --profile admin run --rm admin npm run seed
+#   docker compose --profile admin run --rm admin npm run launch:flagship
+
+services:
+  web:
+    build:
+      context: ./stocklanda_frontend
+      args:
+        # NEXT_PUBLIC_* are inlined at build time, so they matter for the client bundle.
+        NEXT_PUBLIC_RPC_URL: ${NEXT_PUBLIC_RPC_URL:-https://api.devnet.solana.com}
+        NEXT_PUBLIC_PYTH_API_KEY: ${NEXT_PUBLIC_PYTH_API_KEY:-}
+    image: stocklanda-frontend:latest
+    container_name: stocklanda-web
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NEXT_PUBLIC_RPC_URL: ${NEXT_PUBLIC_RPC_URL:-https://api.devnet.solana.com}
+      NEXT_PUBLIC_PYTH_API_KEY: ${NEXT_PUBLIC_PYTH_API_KEY:-}
+      RPC_URL: ${RPC_URL:-https://api.devnet.solana.com}
+      KEYPAIR_PATH: /secrets/id.json
+      REGISTRY_PATH: /data/registry.json
+      FLAGSHIP_PATH: /data/flagship.json
+    volumes:
+      - ./secrets:/secrets:ro
+      - ./data:/data:ro
+
+  # Same image, used for one-off seed / flagship jobs. Writes back into ./data.
+  admin:
+    profiles: ["admin"]
+    build:
+      context: ./stocklanda_frontend
+      args:
+        NEXT_PUBLIC_RPC_URL: ${NEXT_PUBLIC_RPC_URL:-https://api.devnet.solana.com}
+        NEXT_PUBLIC_PYTH_API_KEY: ${NEXT_PUBLIC_PYTH_API_KEY:-}
+    image: stocklanda-frontend:latest
+    environment:
+      RPC_URL: ${RPC_URL:-https://api.devnet.solana.com}
+      KEYPAIR_PATH: /secrets/id.json
+      REGISTRY_PATH: /data/registry.json
+      FLAGSHIP_PATH: /data/flagship.json
+    volumes:
+      - ./secrets:/secrets:ro
+      - ./data:/data:rw
+    entrypoint: ["npm", "run"]
