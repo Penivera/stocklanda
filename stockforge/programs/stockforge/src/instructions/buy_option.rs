@@ -59,6 +59,11 @@ pub fn handle_buy_option(ctx: Context<BuyOption>) -> Result<()> {
         option.writer,
         ErrorCode::Unauthorized
     );
+    require_keys_neq!(
+        ctx.accounts.buyer.key(),
+        option.writer,
+        ErrorCode::CannotBuyOwnOption
+    );
 
     token_interface::transfer_checked(
         CpiContext::new(
