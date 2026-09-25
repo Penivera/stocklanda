@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="StockForge">
+  <defs>
+    <linearGradient id="forge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#34F5AA"/>
+      <stop offset="1" stop-color="#0CC98A"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="13.5" fill="#000000"/>
+  <g fill="url(#forge)">
+    <rect x="15" y="35" width="7" height="12.5" rx="3.5"/>
+    <rect x="28.5" y="25" width="7" height="22.5" rx="3.5"/>
+    <rect x="42" y="15" width="7" height="32.5" rx="3.5"/>
+    <path d="M52 4.5 L53.9 9.1 L58.5 11 L53.9 12.9 L52 17.5 L50.1 12.9 L45.5 11 L50.1 9.1 Z"/>
+  </g>
+</svg>
