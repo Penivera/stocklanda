@@ -1,27 +1,16 @@
 "use client";
 
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
-import BN from "bn.js";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
-import {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  TOKEN_PROGRAM_ID,
-  getAssociatedTokenAddressSync,
-} from "@solana/spl-token";
 import { useEffect, useMemo, useState } from "react";
 import {
   basketNav,
   useBaskets,
-  useConfig,
   usePriceMap,
-  useProgram,
   useRegistry,
 } from "@/lib/hooks";
-import { basketMintPda, basketPda, configPda } from "@/lib/pda";
-import { ensureAta } from "@/lib/tx";
 import { shortKey, token, usd } from "@/lib/format";
+import { useDemoStore } from "@/store/demoStore";
 
 // Helper to reliably extract a base58 string from either PublicKey or string
 const toBase58Str = (key: any): string => {
@@ -32,10 +21,11 @@ const toBase58Str = (key: any): string => {
 };
 
 export default function BasketComposer() {
-  // --- WEB3 ENGINE ---
-  const { connection } = useConnection();
-  const wallet = useWallet();
-  const program = useProgram();
+  // --- DEMO STORE ---
+  const walletAddress = useDemoStore((s) => s.walletAddress);
+  const storeBalances = useDemoStore((s) => s.balances);
+
+  // --- DATA HOOKS ---
   const registry = useRegistry();
   const baskets = useBaskets();
   const prices = usePriceMap(registry, [], baskets);
@@ -46,7 +36,6 @@ export default function BasketComposer() {
   // --- UI STATE ---
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const [balances, setBalances] = useState<Record<string, number>>({});
 
   // new modal state for launchpad navigation
   const [createdModal, setCreatedModal] = useState<{
@@ -76,12 +65,18 @@ export default function BasketComposer() {
       SX: "SpaceX",
       OA: "OpenAI",
       AN: "Anthropic",
-      PRE: "PreStocks Mock"
+      PRE: "PreStocks Mock",
+      SPACEX: "SpaceX",
+      OPENAI: "OpenAI",
+      ANTHROPIC: "Anthropic",
+      ANDURIL: "Anduril Industries",
+      STRIPE: "Stripe",
+      FIGUREAI: "Figure AI",
     };
     return names[symbol] || symbol;
   };
 
-  // Initialize sliders dynamically based on available PreStocks assets
+  // Initialize sliders dynamically based on available assets
   useEffect(() => {
     if (tradableAssets.length > 0 && Object.keys(allocations).length === 0) {
       const initAllocs: Record<string, number> = {};
@@ -102,38 +97,19 @@ export default function BasketComposer() {
     }
   }, [tradableAssets, allocations]);
 
-  // Track user's share balances for existing baskets
-  useEffect(() => {
-    if (!wallet.publicKey || !baskets || baskets.length === 0) return;
-    let active = true;
-    
-    (async () => {
-      const entries = await Promise.all(
-        baskets.map(async (b) => {
-          const pubkeyStr = toBase58Str(b?.publicKey);
-          const mintStr = toBase58Str(b?.account?.shareMint);
-          
-          if (!pubkeyStr || !mintStr) return ["unknown", 0] as const;
-
-          try {
-            const mint = new PublicKey(mintStr);
-            const ata = getAssociatedTokenAddressSync(mint, wallet.publicKey!, true);
-            const bal = await connection.getTokenAccountBalance(ata);
-            return [pubkeyStr, bal.value.uiAmount ?? 0] as const;
-          } catch {
-            return [pubkeyStr, 0] as const;
-          }
-        })
-      );
-      if (active) {
-        // Filter out any invalid "unknown" keys before setting state
-        const validEntries = entries.filter(([key]) => key !== "unknown");
-        setBalances(Object.fromEntries(validEntries));
+  // Derive basket share balances from the Zustand store
+  // Keyed by basket publicKey (matching the JSX access pattern)
+  const balances = useMemo(() => {
+    const result: Record<string, number> = {};
+    (baskets ?? []).forEach((b: any) => {
+      const pubkeyStr = toBase58Str(b?.publicKey);
+      const name = b?.account?.name ?? "";
+      if (pubkeyStr && name) {
+        result[pubkeyStr] = storeBalances[`SHARE-${name}`] ?? 0;
       }
-    })();
-    
-    return () => { active = false; };
-  }, [wallet.publicKey, baskets, connection, busy]);
+    });
+    return result;
+  }, [baskets, storeBalances]);
 
   const handleSliderChange = (id: string, value: number) => {
     setAllocations((prev) => ({ ...prev, [id]: value }));
@@ -172,149 +148,78 @@ export default function BasketComposer() {
   };
 
   const createBasket = async () => {
-    if (!wallet.publicKey) return;
+    if (!walletAddress) return;
     await run("create", async () => {
-      const creator = wallet.publicKey!;
-      const nonce = Date.now() % 1_000_000_000;
-      const basket = basketPda(creator, nonce);
-      const shareMint = basketMintPda(basket);
-
       const components = Object.entries(allocations)
         .filter(([_, weight]) => weight > 0)
         .map(([mint, weight]) => {
-          const safeUnits = Math.max(0, units[mint] || 1);
-          return {
-            mint: new PublicKey(mint),
-            amountPerUnit: new BN(Math.round(safeUnits * 1e6)),
-            weightBps: weight * 100, // 40% -> 4000 bps
-          };
+          const sym = registry?.symbolByMint?.[mint] ?? "UNKNOWN";
+          return { symbol: sym, weight };
         });
 
       if (components.length === 0) throw new Error("Must select at least one component");
 
-      const sig = await program.methods
-        .createBasket(new BN(nonce), basketName, components)
-        .accounts({
-          creator,
-          config: configPda(),
-          basket,
-          shareMint,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
+      await new Promise((res) => setTimeout(res, 800));
+      const txSig = useDemoStore.getState().createBasket({
+        name: basketName,
+        components,
+      });
 
-      // Trigger simple post-creation prompt
+      // Grab the newly created basket for the modal
+      const allBaskets = useDemoStore.getState().baskets;
+      const lastBasket = allBaskets[allBaskets.length - 1];
+
       setCreatedModal({
         name: basketName,
-        mint: shareMint.toBase58(),
+        mint: lastBasket?.shareMint ?? "DemoMint",
         nav: estimatedNAV,
       });
 
-      return sig;
+      return txSig;
     });
   };
 
   const mintShare = async (b: any, unitCount: string) => {
-    if (!wallet.publicKey) return;
-    
+    if (!walletAddress) return;
+
     const pubkeyStr = toBase58Str(b?.publicKey);
     if (!pubkeyStr) return;
-    
+
     const key = `mint-${pubkeyStr}`;
-    
+
     await run(key, async () => {
-      const user = wallet.publicKey!;
-      const components = b?.account?.components ?? [];
-      const basketPubkey = new PublicKey(pubkeyStr);
-      const shareMint = new PublicKey(toBase58Str(b?.account?.shareMint));
-      
+      const storeBasket = useDemoStore.getState().baskets.find(
+        (basket) => basket.publicKey === pubkeyStr
+      );
+      if (!storeBasket) throw new Error("Basket not found");
+
       const safeUnits = Math.max(0, Number(unitCount) || 0);
       if (safeUnits === 0) throw new Error("Invalid unit count");
 
-      const rem: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = [];
-      const ixs = [];
-
-      for (const c of components) {
-        const cmint = new PublicKey(toBase58Str(c.mint));
-        const vault = getAssociatedTokenAddressSync(cmint, basketPubkey, true);
-        const vaultRes = await ensureAta(connection, user, basketPubkey, cmint);
-        const srcRes = await ensureAta(connection, user, user, cmint);
-        
-        if (vaultRes.ix) ixs.push(vaultRes.ix);
-        if (srcRes.ix) ixs.push(srcRes.ix);
-        
-        rem.push({ pubkey: cmint, isWritable: true, isSigner: false });
-        rem.push({ pubkey: vault, isWritable: true, isSigner: false });
-        rem.push({ pubkey: srcRes.address, isWritable: true, isSigner: false });
-      }
-
-      const userShare = await ensureAta(connection, user, user, shareMint);
-      if (userShare.ix) ixs.push(userShare.ix);
-
-      return program.methods
-        .mintBasket(new BN(Math.round(safeUnits * 1e6)))
-        .accounts({
-          user,
-          basket: basketPubkey,
-          shareMint,
-          userShare: userShare.address,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        })
-        .remainingAccounts(rem)
-        .preInstructions(ixs)
-        .rpc();
+      await new Promise((res) => setTimeout(res, 800));
+      return useDemoStore.getState().mintBasketShare(storeBasket.id, safeUnits);
     });
   };
 
   const redeemShare = async (b: any, unitCount: string) => {
-    if (!wallet.publicKey) return;
-    
+    if (!walletAddress) return;
+
     const pubkeyStr = toBase58Str(b?.publicKey);
     if (!pubkeyStr) return;
 
     const key = `redeem-${pubkeyStr}`;
-    
+
     await run(key, async () => {
-      const user = wallet.publicKey!;
-      const components = b?.account?.components ?? [];
-      const basketPubkey = new PublicKey(pubkeyStr);
-      const shareMint = new PublicKey(toBase58Str(b?.account?.shareMint));
+      const storeBasket = useDemoStore.getState().baskets.find(
+        (basket) => basket.publicKey === pubkeyStr
+      );
+      if (!storeBasket) throw new Error("Basket not found");
 
       const safeUnits = Math.max(0, Number(unitCount) || 0);
       if (safeUnits === 0) throw new Error("Invalid unit count");
 
-      const rem: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = [];
-      const ixs = [];
-
-      for (const c of components) {
-        const cmint = new PublicKey(toBase58Str(c.mint));
-        const vault = getAssociatedTokenAddressSync(cmint, basketPubkey, true);
-        const destRes = await ensureAta(connection, user, user, cmint);
-        
-        if (destRes.ix) ixs.push(destRes.ix);
-        
-        rem.push({ pubkey: cmint, isWritable: true, isSigner: false });
-        rem.push({ pubkey: vault, isWritable: true, isSigner: false });
-        rem.push({ pubkey: destRes.address, isWritable: true, isSigner: false });
-      }
-
-      const userShare = getAssociatedTokenAddressSync(shareMint, user, true);
-
-      return program.methods
-        .redeemBasket(new BN(Math.round(safeUnits * 1e6)))
-        .accounts({
-          user,
-          basket: basketPubkey,
-          shareMint,
-          userShare,
-          tokenProgram: TOKEN_PROGRAM_ID,
-        })
-        .remainingAccounts(rem)
-        .preInstructions(ixs)
-        .rpc();
+      await new Promise((res) => setTimeout(res, 800));
+      return useDemoStore.getState().redeemBasketShare(storeBasket.id, safeUnits);
     });
   };
 
@@ -444,9 +349,9 @@ export default function BasketComposer() {
             <div className="mt-8 space-y-2">
               <button
                 onClick={createBasket}
-                disabled={!isValid || !wallet.publicKey || busy === "create"}
+                disabled={!isValid || !walletAddress || busy === "create"}
                 className={`w-full py-3 rounded-lg font-sans font-bold text-lg transition-colors ${
-                  isValid && wallet.publicKey && busy !== "create"
+                  isValid && walletAddress && busy !== "create"
                     ? "bg-emerald-400 text-void hover:bg-emerald-300"
                     : "bg-slate-800 text-slate-500 cursor-not-allowed"
                 }`}
@@ -454,7 +359,7 @@ export default function BasketComposer() {
                 {busy === "create" ? "Initializing..." : "Mint Basket Vault"}
               </button>
               <p className="text-center text-slate-600 font-mono text-[10px]">
-                {!wallet.publicKey ? "Requires wallet connection" : "1:1 Pro-rata Asset Vault"}
+                {!walletAddress ? "Requires wallet connection" : "1:1 Pro-rata Asset Vault"}
               </p>
             </div>
           </div>
@@ -535,14 +440,14 @@ export default function BasketComposer() {
                   <div className="grid grid-cols-2 gap-3 pt-2">
                     <button
                       onClick={() => mintShare(b, "1")}
-                      disabled={!wallet.publicKey || busy === `mint-${pubkeyStr}`}
+                      disabled={!walletAddress || busy === `mint-${pubkeyStr}`}
                       className="w-full py-2 rounded border border-emerald-400 text-emerald-400 font-mono text-sm hover:bg-emerald-400/10 transition-colors disabled:opacity-50"
                     >
                       {busy === `mint-${pubkeyStr}` ? "Minting..." : "Mint 1 Share"}
                     </button>
                     <button
                       onClick={() => redeemShare(b, bal > 1 ? "1" : String(bal))}
-                      disabled={!wallet.publicKey || bal <= 0 || busy === `redeem-${pubkeyStr}`}
+                      disabled={!walletAddress || bal <= 0 || busy === `redeem-${pubkeyStr}`}
                       className="w-full py-2 rounded border border-orange-400 text-orange-400 font-mono text-sm hover:bg-orange-400/10 transition-colors disabled:opacity-50"
                     >
                       {busy === `redeem-${pubkeyStr}` ? "Redeeming..." : "Redeem 1 Share"}

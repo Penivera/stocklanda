@@ -1,9 +1,6 @@
 "use client";
 
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey } from "@solana/web3.js";
-import { getAssociatedTokenAddressSync } from "@solana/spl-token";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   basketNav,
   useBaskets,
@@ -11,14 +8,7 @@ import {
   useRegistry,
 } from "@/lib/hooks";
 import { shortKey } from "@/lib/format";
-
-interface ActivityItem {
-  id: string;
-  title: string;
-  action: string;
-  time: string;
-  value: string;
-}
+import { useDemoStore } from "@/store/demoStore";
 
 // Helper to reliably extract a base58 string from either PublicKey or string
 const toBase58Str = (key: any): string => {
@@ -29,72 +19,34 @@ const toBase58Str = (key: any): string => {
 };
 
 export default function Dashboard() {
-  const { connection } = useConnection();
-  const wallet = useWallet();
+  // --- DEMO STORE ---
+  const walletAddress = useDemoStore((s) => s.walletAddress);
+  const storeBalances = useDemoStore((s) => s.balances);
+  const storeActivity = useDemoStore((s) => s.activity);
+
   const registry = useRegistry();
   const baskets = useBaskets();
   const prices = usePriceMap(registry, [], baskets);
 
-  const [balances, setBalances] = useState<Record<string, number>>({});
-  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
-  const [loadingActivity, setLoadingActivity] = useState(false);
-  const [activityError, setActivityError] = useState<string | null>(null);
-
-  // 1. Fetch live token balances for all known mints (Registry assets + Basket ETF mints)
-  useEffect(() => {
-    if (!wallet.publicKey) {
-      setBalances({});
-      return;
-    }
-
-    let active = true;
-
-    (async () => {
-      const allMints: { key: string; address: PublicKey }[] = [];
-
-      // Add PreStocks / Underlying mints from registry
-      (registry?.mints ?? []).forEach((m) => {
-        try {
-          if (m?.address) {
-            allMints.push({ key: m.address, address: new PublicKey(m.address) });
-          }
-        } catch { }
-      });
-
-      // Add Share mints from Baskets
-      (baskets ?? []).forEach((b: any) => {
-        try {
-          const rawMint = b?.account?.shareMint;
-          if (rawMint) {
-            const pubkey = typeof rawMint === "string" ? new PublicKey(rawMint) : (rawMint as PublicKey);
-            allMints.push({ key: pubkey.toBase58(), address: pubkey });
-          }
-        } catch { }
-      });
-
-      const results = await Promise.all(
-        allMints.map(async ({ key, address }) => {
-          try {
-            const ata = getAssociatedTokenAddressSync(address, wallet.publicKey!, true);
-            const bal = await connection.getTokenAccountBalance(ata);
-            return [key, bal.value.uiAmount ?? 0] as const;
-          } catch {
-            return [key, 0] as const;
-          }
-        })
-      );
-
-      if (active) {
-        setBalances(Object.fromEntries(results));
+  // Convert symbol-keyed store balances → mint-address-keyed balances
+  // so the portfolio computation logic stays unchanged
+  const balances = useMemo(() => {
+    const result: Record<string, number> = {};
+    (registry?.mints ?? []).forEach((m) => {
+      result[m.address] = storeBalances[m.symbol] ?? 0;
+    });
+    // Map basket share balances to their shareMint addresses
+    (baskets ?? []).forEach((b: any) => {
+      const shareMint = toBase58Str(b?.account?.shareMint);
+      const name = b?.account?.name ?? "";
+      if (shareMint && name) {
+        result[shareMint] = storeBalances[`SHARE-${name}`] ?? 0;
       }
-    })();
+    });
+    return result;
+  }, [registry, storeBalances, baskets]);
 
-    return () => {
-      active = false;
-    };
-  }, [wallet.publicKey, connection, registry, baskets]);
-
-  // 2. Compute Total Portfolio Value from holdings * oracle prices (guarded against NaN)
+  // 1. Compute Total Portfolio Value from holdings × oracle prices (guarded against NaN)
   const totalValue = useMemo(() => {
     let sum = 0;
 
@@ -121,16 +73,15 @@ export default function Dashboard() {
     return sum;
   }, [balances, prices, registry, baskets]);
 
-  // 3. Basket metrics: count baskets created by user vs baskets where user owns shares
+  // 2. Basket metrics: count baskets created by user vs baskets where user owns shares
   const basketStats = useMemo(() => {
-    if (!wallet.publicKey) return { total: 0, minted: 0,  holding: 0 };
+    if (!walletAddress) return { total: 0, minted: 0, holding: 0 };
 
-    const userPubkey = wallet.publicKey.toBase58();
     const basketList = baskets ?? [];
 
     const createdByMe = basketList.filter((b: any) => {
       const creatorStr = toBase58Str(b?.account?.creator);
-      return creatorStr === userPubkey;
+      return creatorStr === walletAddress;
     });
 
     const holdingShares = basketList.filter((b: any) => {
@@ -143,64 +94,7 @@ export default function Dashboard() {
       minted: createdByMe.length,
       holding: holdingShares.length,
     };
-  }, [baskets, balances, wallet.publicKey]);
-
-  // 4. Fetch real on-chain transaction history for connected wallet
-  useEffect(() => {
-    if (!wallet.publicKey) {
-      setRecentActivity([]);
-      setActivityError(null);
-      return;
-    }
-
-    let active = true;
-    setLoadingActivity(true);
-    setActivityError(null);
-
-    const fetchActivity = async () => {
-      try {
-        const sigs = await connection.getSignaturesForAddress(wallet.publicKey!, {
-          limit: 6,
-        });
-
-        if (!active) return;
-
-        const items: ActivityItem[] = sigs.map((s) => {
-          let timeStr = "recently";
-          if (s.blockTime) {
-            const diffSec = Math.floor(Date.now() / 1000 - s.blockTime);
-            if (diffSec < 60) timeStr = `${diffSec}s ago`;
-            else if (diffSec < 3600) timeStr = `${Math.floor(diffSec / 60)}m ago`;
-            else if (diffSec < 86400) timeStr = `${Math.floor(diffSec / 3600)}h ago`;
-            else timeStr = `${Math.floor(diffSec / 86400)}d ago`;
-          }
-
-          return {
-            id: s.signature,
-            title: `Tx: ${shortKey(s.signature)}`,
-            action: s.err ? "Failed" : "Confirmed",
-            time: timeStr,
-            value: s.err ? "Error" : "Success",
-          };
-        });
-
-        setRecentActivity(items);
-      } catch (err) {
-        if (active) {
-          setRecentActivity([]);
-          setActivityError("Network connection unstable.");
-        }
-      } finally {
-        if (active) setLoadingActivity(false);
-      }
-    };
-
-    fetchActivity();
-
-    return () => {
-      active = false;
-    };
-  }, [wallet.publicKey, connection]);
+  }, [baskets, balances, walletAddress]);
 
   const formatCurrency = (val: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(val);
@@ -225,7 +119,7 @@ export default function Dashboard() {
             <p className="text-slate-300 font-mono text-sm flex items-center space-x-1">
               <span className="text-[10px] text-emerald-400">●</span>
               <span className="text-slate-400 text-xs">
-                {wallet.publicKey ? "Live On-Chain Balance" : "Wallet not connected"}
+                {walletAddress ? "Demo Mode" : "Wallet not connected"}
               </span>
             </p>
             <div className="absolute right-6 bottom-6 text-xs font-mono text-slate-600 hidden md:block uppercase">
@@ -280,27 +174,16 @@ export default function Dashboard() {
           </h2>
 
           <div className="space-y-6 overflow-y-auto pr-2 pb-2 flex-1 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
-            {!wallet.publicKey ? (
+            {!walletAddress ? (
               <p className="text-xs font-mono text-slate-500 py-4 text-center">
                 Connect wallet to view recent activity
               </p>
-            ) : loadingActivity ? (
-              <p className="text-xs font-mono text-slate-500 py-4 text-center">
-                Fetching on-chain transactions...
-              </p>
-            ) : activityError ? (
-              <div className="py-6 text-center space-y-2">
-                <p className="text-xs font-mono text-orange-400">⚠️ {activityError}</p>
-                <p className="text-[10px] font-mono text-slate-500">
-                  Retrying connection to Solana RPC...
-                </p>
-              </div>
-            ) : recentActivity.length === 0 ? (
+            ) : storeActivity.length === 0 ? (
               <p className="text-xs font-mono text-slate-500 py-4 text-center">
                 No recent transactions found
               </p>
             ) : (
-              recentActivity.map((activity) => (
+              storeActivity.slice(0, 6).map((activity) => (
                 <div key={activity.id} className="flex justify-between items-start">
                   <div>
                     <p className="font-sans text-sm font-bold text-white">{activity.title}</p>
@@ -310,7 +193,7 @@ export default function Dashboard() {
                   </div>
                   <span
                     className={`font-mono text-xs px-2 py-0.5 rounded ${
-                      activity.action === "Confirmed"
+                      activity.isPositive
                         ? "text-emerald-400 bg-emerald-400/10"
                         : "text-red-400 bg-red-400/10"
                     }`}

@@ -1,24 +1,14 @@
 "use client";
 
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { BN } from "@anchor-lang/core";
-import { SystemProgram, PublicKey } from "@solana/web3.js";
-import {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  TOKEN_PROGRAM_ID,
-  getAssociatedTokenAddressSync,
-} from "@solana/spl-token";
 import { useMemo, useState } from "react";
 import {
   useConfig,
   useOptions,
   usePriceMap,
-  useProgram,
   useRegistry,
 } from "@/lib/hooks";
-import { configPda, optionPda } from "@/lib/pda";
-import { ensureAta, compactIxs } from "@/lib/tx";
-import { fromUi, shortKey, toUi, token, usd } from "@/lib/format";
+import { shortKey, toUi, token, usd } from "@/lib/format";
+import { useDemoStore, DEMO_PRICES } from "@/store/demoStore";
 
 // Helper to reliably extract a base58 string from either PublicKey or string
 const toBase58Str = (key: any): string => {
@@ -42,10 +32,10 @@ function statusOf(account: any): string {
 }
 
 export default function OptionsDesk() {
-  //  WEB3 ENGINE 
-  const { connection } = useConnection();
-  const wallet = useWallet();
-  const program = useProgram();
+  //  DEMO STORE 
+  const walletAddress = useDemoStore((s) => s.walletAddress);
+
+  //  DATA HOOKS 
   const registry = useRegistry();
   const config = useConfig();
   const options = useOptions();
@@ -94,32 +84,19 @@ export default function OptionsDesk() {
   };
 
   const faucet = async () => {
-    if (!wallet.publicKey) return;
+    if (!walletAddress) return;
     await run("faucet", async () => {
-      const res = await fetch("/api/faucet", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ wallet: wallet.publicKey!.toBase58() }),
-      });
-      const json = await res.json().catch(() => ({ error: "Server error" }));
-      if (!res.ok) throw new Error(json.error ?? "Faucet failed");
-      return json.signature ?? "Funded";
+      await new Promise((res) => setTimeout(res, 800));
+      return useDemoStore.getState().faucet();
     });
   };
 
   const write = async () => {
-    if (!wallet.publicKey || !quoteMint) return;
+    if (!walletAddress || !quoteMint) return;
     await run("write", async () => {
-      const writer = wallet.publicKey!;
-      const id = Date.now() % 1_000_000_000;
-      const option = optionPda(writer, id);
-      const underlyingMintStr = tradableMints.find((m) => m.address === underlying)?.address;
-      if (!underlyingMintStr) throw new Error("Select an underlying asset");
-      
-      const underlyingMint = new PublicKey(underlyingMintStr);
-      const collateralMint = type === "PUT" ? new PublicKey(quoteMint) : underlyingMint;
-      
-      // Guard against NaN or negative inputs crashing the BN constructor
+      const sym = registry?.symbolByMint?.[underlying];
+      if (!sym) throw new Error("Select an underlying asset");
+
       const safeSize = Math.max(0, Number(size) || 0);
       const safeStrike = Math.max(0, Number(strike) || 0);
       const safePremium = Math.max(0, Number(premium) || 0);
@@ -129,90 +106,45 @@ export default function OptionsDesk() {
         throw new Error("Invalid numeric inputs");
       }
 
-      const sizeBn = fromUi(safeSize);
-      const strikeBn = fromUi(safeStrike);
-      const collateral = type === "PUT" ? fromUi(safeSize * safeStrike) : sizeBn;
-
-      const writerCollateral = await ensureAta(connection, writer, writer, collateralMint);
-      const vault = getAssociatedTokenAddressSync(collateralMint, option, true);
-      const expiry = Math.floor(Date.now() / 1000) + (safeMinutes * 60);
-
-      return program.methods
-        .listOption(
-          new BN(id),
-          type === "PUT" ? { put: {} } : { call: {} },
-          strikeBn,
-          sizeBn,
-          fromUi(safePremium),
-          collateral,
-          new BN(expiry)
-        )
-        .accounts({
-          writer,
-          config: configPda(),
-          option,
-          underlyingMint,
-          collateralMint,
-          premiumMint: new PublicKey(quoteMint),
-          writerCollateral: writerCollateral.address,
-          vault,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        })
-        .preInstructions(writerCollateral.ix ? [writerCollateral.ix] : [])
-        .rpc();
+      await new Promise((res) => setTimeout(res, 800));
+      return useDemoStore.getState().writeOption({
+        underlyingSymbol: sym,
+        optionType: type,
+        strike: safeStrike,
+        size: safeSize,
+        premium: safePremium,
+        expiryMinutes: safeMinutes,
+      });
     });
   };
 
   const buy = async (option: any) => {
-    if (!wallet.publicKey) return;
+    if (!walletAddress) return;
     const key = `buy-${toBase58Str(option?.publicKey)}`;
     await run(key, async () => {
-      const buyer = wallet.publicKey!;
-      const a = option.account;
-      if (!a?.premiumMint || !a?.writer) throw new Error("Invalid option account data");
-      
-      const premiumMint = new PublicKey(toBase58Str(a.premiumMint));
-      const writerPubkey = new PublicKey(toBase58Str(a.writer));
-      
-      const [buyerAta, writerAta] = await Promise.all([
-        ensureAta(connection, buyer, buyer, premiumMint),
-        ensureAta(connection, buyer, writerPubkey, premiumMint),
-      ]);
-      
-      const { ix } = compactIxs([buyerAta, writerAta]);
-      
-      return program.methods
-        .buyOption()
-        .accounts({
-          buyer,
-          config: configPda(),
-          option: new PublicKey(toBase58Str(option.publicKey)),
-          premiumMint,
-          buyerPremium: buyerAta.address,
-          writerPremium: writerAta.address,
-          tokenProgram: TOKEN_PROGRAM_ID,
-        })
-        .preInstructions(ix)
-        .rpc();
+      const pubkeyStr = toBase58Str(option?.publicKey);
+      const storeOpt = useDemoStore.getState().options.find((o) => o.publicKey === pubkeyStr);
+      if (!storeOpt) throw new Error("Option not found");
+
+      await new Promise((res) => setTimeout(res, 800));
+      return useDemoStore.getState().buyOption(storeOpt.id);
     });
   };
 
   const settle = async (option: any) => {
     const pubkeyStr = toBase58Str(option?.publicKey);
     if (!pubkeyStr) return;
-    
+
     const key = `settle-${pubkeyStr}`;
     await run(key, async () => {
-      const res = await fetch("/api/settle", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ option: pubkeyStr }),
-      });
-      const json = await res.json().catch(() => ({ error: "Server error" }));
-      if (!res.ok) throw new Error(json.error ?? "Settlement failed");
-      return json.signature ?? "Settled";
+      const storeOpt = useDemoStore.getState().options.find((o) => o.publicKey === pubkeyStr);
+      if (!storeOpt) throw new Error("Option not found");
+
+      // Use demo price for the underlying as settlement price
+      const settlementPrice = DEMO_PRICES[storeOpt.underlyingSymbol] ?? 0;
+
+      await new Promise((res) => setTimeout(res, 800));
+      return useDemoStore.getState().settleOption(storeOpt.id, settlementPrice);
     });
   };
 
@@ -269,7 +201,7 @@ export default function OptionsDesk() {
             {msg && <span className="text-xs font-mono text-emerald-400">{msg}</span>}
             <button
               onClick={faucet}
-              disabled={!wallet.publicKey || busy === "faucet"}
+              disabled={!walletAddress || busy === "faucet"}
               className="px-4 py-2 text-xs font-mono text-slate-400 hover:text-emerald-400 transition-colors disabled:opacity-50"
             >
               {busy === "faucet" ? "Funding..." : "Get Test USDC"}
@@ -378,7 +310,7 @@ export default function OptionsDesk() {
               </div>
               <button
                 onClick={write}
-                disabled={!wallet.publicKey || busy === "write" || !underlying}
+                disabled={!walletAddress || busy === "write" || !underlying}
                 className="bg-emerald-400 text-void px-6 py-2 rounded-lg font-mono text-sm font-bold hover:bg-emerald-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {busy === "write" ? "Processing..." : "Lock Collateral & List"}
@@ -504,7 +436,7 @@ export default function OptionsDesk() {
                     {st === "OPEN" && !expired && (
                       <button
                         onClick={() => buy(o)}
-                        disabled={!wallet.publicKey || busy === `buy-${pubkeyStr}`}
+                        disabled={!walletAddress || busy === `buy-${pubkeyStr}`}
                         className="w-full md:w-auto px-4 py-2 md:py-1.5 rounded border border-emerald-400 text-emerald-400 font-mono text-sm hover:bg-emerald-400/10 transition-colors disabled:opacity-50"
                       >
                         {busy === `buy-${pubkeyStr}` ? "Buying..." : "Buy"}

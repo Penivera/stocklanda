@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useBaskets } from "@/lib/hooks";
+import { useDemoStore } from "@/store/demoStore";
 
 // Helper to reliably extract a base58 string from either PublicKey or string
 const toBase58Str = (key: any): string => {
@@ -23,13 +23,13 @@ const safeDecode = (str: string | null): string => {
   }
 };
 
-export default function Launchpad() {
+function LaunchpadInner() {
   const searchParams = useSearchParams();
   const passedMint = searchParams.get("mint");
   const passedSymbol = searchParams.get("symbol");
   const passedNav = searchParams.get("nav");
 
-  const wallet = useWallet();
+  const walletAddress = useDemoStore((s) => s.walletAddress);
   const baskets = useBaskets();
 
   // Parse passedNav safely with fallback
@@ -246,17 +246,31 @@ export default function Launchpad() {
             )}
             <button
               onClick={handleInitializePool}
-              disabled={!wallet.publicKey || isDeploying}
+              disabled={!walletAddress || isDeploying}
               className="w-full py-3 rounded-lg font-sans font-bold text-lg bg-emerald-400 text-void hover:bg-emerald-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isDeploying ? "Deploying Pool..." : "Initialize Pool"}
             </button>
             <p className="text-center text-slate-600 font-mono text-[10px]">
-              {!wallet.publicKey ? "Requires wallet connection" : "Meteora DLMM On-Chain Pool"}
+              {!walletAddress ? "Requires wallet connection" : "Meteora DLMM On-Chain Pool"}
             </p>
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function Launchpad() {
+  return (
+    <Suspense
+      fallback={
+        <div className="max-w-6xl mx-auto py-20 text-center text-slate-500 font-mono text-sm">
+          Loading launchpad…
+        </div>
+      }
+    >
+      <LaunchpadInner />
+    </Suspense>
   );
 }
