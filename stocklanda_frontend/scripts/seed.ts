@@ -10,14 +10,14 @@ import {
 } from "@anchor-lang/core";
 import {
   createMint,
-  getOrCreateAssociatedTokenAccount,
+  getOrCreateAssociatedTokenAccount as _getOrCreateAta,
   getAssociatedTokenAddressSync,
-  mintTo,
+  mintTo as _mintTo,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 
-const { Connection, Keypair, PublicKey, SystemProgram } = web3;
+const { Connection, Keypair, PublicKey, SystemProgram, Transaction } = web3;
 
 const RPC = process.env.RPC_URL ?? "https://api.devnet.solana.com";
 const KEYPAIR_PATH =
@@ -39,6 +39,66 @@ function log(msg: string) {
   console.log(`\n=== ${msg} ===`);
 }
 
+/**
+ * Fund a wallet with `lamports`. Tries an airdrop first (localnet), then falls
+ * back to a transfer from the payer — devnet airdrops are rate-limited.
+ */
+async function fundWallet(
+  connection: web3.Connection,
+  payer: Keypair,
+  to: PublicKey,
+  lamports: number
+) {
+  if (RPC.includes("127.0.0.1") || RPC.includes("localhost")) {
+    try {
+      const sig = await connection.requestAirdrop(to, lamports);
+      const bh = await connection.getLatestBlockhash();
+      await connection.confirmTransaction({ signature: sig, ...bh }, "confirmed");
+      console.log(`airdropped ${lamports / 1e9} SOL -> ${to.toBase58()}`);
+      return;
+    } catch {
+      console.log("airdrop failed; falling back to a payer transfer");
+    }
+  } else {
+    console.log(`transferring ${lamports / 1e9} SOL from payer -> ${to.toBase58()}`);
+  }
+  const tx = new Transaction().add(
+    SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: to, lamports })
+  );
+  const bh = await connection.getLatestBlockhash();
+  tx.feePayer = payer.publicKey;
+  tx.recentBlockhash = bh.blockhash;
+  tx.sign(payer);
+  const sig = await connection.sendRawTransaction(tx.serialize(), {
+    skipPreflight: false,
+  });
+  await connection.confirmTransaction({ signature: sig, ...bh }, "confirmed");
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Retry a flaky devnet RPC call (transient 429s / not-yet-visible accounts). */
+async function retry<T>(label: string, fn: () => Promise<T>, tries = 8): Promise<T> {
+  let last: unknown;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      last = e;
+      console.log(`retry ${i + 1}/${tries} (${label}): ${(e as Error).message}`);
+      await sleep(1000 * (i + 1));
+    }
+  }
+  throw last;
+}
+
+// Wrap the ATA + mint helpers so transient devnet races self-heal.
+const getOrCreateAssociatedTokenAccount = ((...args: unknown[]) =>
+  retry("getOrCreateATA", () => (_getOrCreateAta as any)(...args))) as unknown as typeof _getOrCreateAta;
+
+const mintTo = ((...args: unknown[]) =>
+  retry("mintTo", () => (_mintTo as any)(...args))) as unknown as typeof _mintTo;
+
 async function main() {
   const connection = new Connection(RPC, "confirmed");
   const raw = JSON.parse(fs.readFileSync(KEYPAIR_PATH, "utf8"));
@@ -55,8 +115,18 @@ async function main() {
 
   const [config] = PublicKey.findProgramAddressSync([SEED.config], PROGRAM_ID);
 
+  // The config PDA is global, so a re-run must reuse its quote mint instead of
+  // creating a new one (list_option checks the collateral against config.quote_mint).
+  const existingConfig = await connection.getAccountInfo(config);
   log("Creating mints");
-  const usdc = await createMint(connection, payer, payer.publicKey, null, 6);
+  let usdc: PublicKey;
+  if (existingConfig) {
+    const cfg: any = await program.account.config.fetch(config);
+    usdc = cfg.quoteMint as PublicKey;
+    console.log("reusing existing config quoteMint:", usdc.toBase58());
+  } else {
+    usdc = await createMint(connection, payer, payer.publicKey, null, 6);
+  }
   const nvda = await createMint(connection, payer, payer.publicKey, null, 6);
   const msft = await createMint(connection, payer, payer.publicKey, null, 6);
   const aapl = await createMint(connection, payer, payer.publicKey, null, 6);
@@ -77,16 +147,14 @@ async function main() {
   const treasuryWallet = Keypair.generate();
   const keeper = Keypair.generate();
   for (const kp of [treasuryWallet, keeper]) {
-    const s = await connection.requestAirdrop(kp.publicKey, 5_000_000_000);
-    await connection.confirmTransaction(s, "confirmed");
+    await fundWallet(connection, payer, kp.publicKey, 10_000_000);
   }
   const treasuryUsdc = await getOrCreateAssociatedTokenAccount(connection, payer, usdc, treasuryWallet.publicKey);
   const keeperUsdc = await getOrCreateAssociatedTokenAccount(connection, payer, usdc, keeper.publicKey);
   const keeperNvda = await getOrCreateAssociatedTokenAccount(connection, payer, nvda, keeper.publicKey);
 
   log("initialize_config");
-  const alreadyInit = await connection.getAccountInfo(config);
-  if (!alreadyInit) {
+  if (!existingConfig) {
     await program.methods
       .initializeConfig(25, payer.publicKey)
       .accounts({
@@ -104,14 +172,15 @@ async function main() {
 
   // ------------------------------------------------------------------
   log("Option 1: cash-secured PUT on NVDA (will be settled ITM)");
-  const opt1Id = new BN(1);
+  const idBase = Date.now() % 1_000_000_000;
+  const opt1Id = new BN(idBase);
   const [option1] = PublicKey.findProgramAddressSync(
     [SEED.option, payer.publicKey.toBuffer(), opt1Id.toArrayLike(Buffer, "le", 8)],
     PROGRAM_ID
   );
   const vault1 = getAssociatedTokenAddressSync(usdc, option1, true);
   await program.methods
-    .listOption(opt1Id, { put: {} }, new BN(120_000_000), new BN(1_000_000), new BN(5_000_000), new BN(120_000_000), new BN(Math.floor(Date.now() / 1000) + 15))
+    .listOption(opt1Id, { put: {} }, new BN(120_000_000), new BN(1_000_000), new BN(5_000_000), new BN(120_000_000), new BN(Math.floor(Date.now() / 1000) + 40))
     .accounts({
       writer: payer.publicKey,
       config,
@@ -131,8 +200,7 @@ async function main() {
   // ------------------------------------------------------------------
   log("Creating buyer wallet");
   const buyer = Keypair.generate();
-  const sig = await connection.requestAirdrop(buyer.publicKey, 5_000_000_000);
-  await connection.confirmTransaction(sig, "confirmed");
+  await fundWallet(connection, payer, buyer.publicKey, 10_000_000);
   const buyerUsdc = await getOrCreateAssociatedTokenAccount(connection, payer, usdc, buyer.publicKey);
   await mintTo(connection, payer, usdc, buyerUsdc.address, payer, 1_000n * 1_000_000n);
   const buyerNvda = await getOrCreateAssociatedTokenAccount(connection, payer, nvda, buyer.publicKey);
@@ -155,7 +223,7 @@ async function main() {
     .rpc();
 
   log("Option 2: covered CALL on MSFT (leave Open)");
-  const opt2Id = new BN(2);
+  const opt2Id = new BN(idBase + 1);
   const [option2] = PublicKey.findProgramAddressSync(
     [SEED.option, payer.publicKey.toBuffer(), opt2Id.toArrayLike(Buffer, "le", 8)],
     PROGRAM_ID
@@ -180,7 +248,7 @@ async function main() {
   console.log("listed call", option2.toBase58());
 
   log("Option 3: PUT on AAPL (buy, leave Active)");
-  const opt3Id = new BN(3);
+  const opt3Id = new BN(idBase + 2);
   const [option3] = PublicKey.findProgramAddressSync(
     [SEED.option, payer.publicKey.toBuffer(), opt3Id.toArrayLike(Buffer, "le", 8)],
     PROGRAM_ID
@@ -218,7 +286,7 @@ async function main() {
   console.log("active put", option3.toBase58());
 
   log("Waiting for option 1 expiry");
-  await new Promise((r) => setTimeout(r, 17_000));
+  await new Promise((r) => setTimeout(r, 42_000));
 
   if (!process.env.SKIP_SETTLE) {
     log("settle_option (admin price, NVDA = $100 -> ITM)");
@@ -248,7 +316,7 @@ async function main() {
 
   // ------------------------------------------------------------------
   log("create_basket: AI Titans");
-  const nonce = new BN(1);
+  const nonce = new BN(idBase + 10);
   const [basket] = PublicKey.findProgramAddressSync(
     [SEED.basket, payer.publicKey.toBuffer(), nonce.toArrayLike(Buffer, "le", 8)],
     PROGRAM_ID

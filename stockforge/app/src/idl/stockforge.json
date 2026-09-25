@@ -1,5 +1,5 @@
 {
-  "address": "E4t7DUwrLKgxpGb88686DtqrRqnHd5GCKE3ASwR8SCwi",
+  "address": "5qNeAcUKD45g3T5osCLVk13Q8CZLtT7BWhivG5og9CMf",
   "metadata": {
     "name": "stockforge",
     "version": "0.1.0",
@@ -1384,6 +1384,11 @@
       "code": 6024,
       "name": "InsufficientShares",
       "msg": "Not enough basket shares supplied"
+    },
+    {
+      "code": 6025,
+      "name": "CannotBuyOwnOption",
+      "msg": "Cannot buy your own option"
     }
   ],
   "types": [
