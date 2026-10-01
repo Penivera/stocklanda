@@ -9,8 +9,10 @@ import {
   useBaskets,
   useOptions,
   usePriceMap,
+  useProgram,
   useRegistry,
 } from "@/lib/hooks";
+import { fetchRecentActivity, type ActivityEntry } from "@/lib/activity";
 
 // Helper to reliably extract a base58 string from either PublicKey or string
 const toBase58Str = (key: any): string => {
@@ -42,9 +44,10 @@ export default function Dashboard() {
   const baskets = useBaskets();
   const options = useOptions();
   const prices = usePriceMap(registry, options, baskets);
+  const program = useProgram();
 
   const [rawBalances, setRawBalances] = useState<Record<string, number>>({});
-  const [rawActivity, setRawActivity] = useState<any[]>([]);
+  const [rawActivity, setRawActivity] = useState<ActivityEntry[]>([]);
   const balances = useMemo(
     () => (wallet.publicKey ? rawBalances : {}),
     [wallet.publicKey, rawBalances]
@@ -90,22 +93,30 @@ export default function Dashboard() {
     };
   }, [wallet.publicKey, registry, baskets, connection]);
 
-  // Recent on-chain activity
+  // Recent on-chain StockForge activity (decoded program instructions)
   useEffect(() => {
     if (!wallet.publicKey) return;
     let active = true;
-    connection
-      .getSignaturesForAddress(wallet.publicKey, { limit: 6 })
-      .then((sigs) => {
-        if (active) setRawActivity(sigs);
-      })
-      .catch(() => {
-        /* ignore */
-      });
+    const load = async () => {
+      try {
+        const entries = await fetchRecentActivity(
+          connection,
+          wallet.publicKey!,
+          registry,
+          program
+        );
+        if (active) setRawActivity(entries);
+      } catch {
+        /* ignore transient RPC errors */
+      }
+    };
+    load();
+    const id = setInterval(load, 30000);
     return () => {
       active = false;
+      clearInterval(id);
     };
-  }, [wallet.publicKey, connection]);
+  }, [wallet.publicKey, connection, registry, program]);
 
   // 1. Compute Total Portfolio Value from holdings × oracle prices (guarded against NaN)
   const totalValue = useMemo(() => {
@@ -252,30 +263,38 @@ export default function Dashboard() {
               </p>
             ) : activity.length === 0 ? (
               <p className="text-xs font-mono text-slate-500 py-4 text-center">
-                No recent transactions found
+                No recent StockForge activity
               </p>
             ) : (
               activity.map((tx) => (
-                <div key={tx.signature} className="flex justify-between items-start">
+                <div key={tx.signature} className="flex justify-between items-start gap-2">
                   <div className="min-w-0">
-                    <p className="font-mono text-xs text-white truncate">
-                      {tx.signature.slice(0, 16)}…
+                    <p className="font-sans text-sm font-bold text-white truncate">
+                      {tx.title}
                     </p>
                     <p className="text-slate-500 text-[10px] font-mono mt-0.5 uppercase">
-                      {tx.blockTime
-                        ? new Date(tx.blockTime * 1000).toLocaleString()
-                        : "pending"}
+                      {tx.tag} • {tx.time}
                     </p>
                   </div>
-                  <span
-                    className={`font-mono text-xs px-2 py-0.5 rounded shrink-0 ${
-                      tx.err
-                        ? "text-red-400 bg-red-400/10"
-                        : "text-emerald-400 bg-emerald-400/10"
-                    }`}
-                  >
-                    {tx.err ? "failed" : "success"}
-                  </span>
+                  {tx.err ? (
+                    <span className="font-mono text-xs px-2 py-0.5 rounded shrink-0 text-red-400 bg-red-400/10">
+                      failed
+                    </span>
+                  ) : tx.amount ? (
+                    <span
+                      className={`font-mono text-xs px-2 py-0.5 rounded shrink-0 ${
+                        tx.positive
+                          ? "text-emerald-400 bg-emerald-400/10"
+                          : "text-red-400 bg-red-400/10"
+                      }`}
+                    >
+                      {tx.amount}
+                    </span>
+                  ) : (
+                    <span className="font-mono text-xs px-2 py-0.5 rounded shrink-0 text-slate-400 bg-slate-400/10">
+                      success
+                    </span>
+                  )}
                 </div>
               ))
             )}

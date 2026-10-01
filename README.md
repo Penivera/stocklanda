@@ -232,7 +232,7 @@ See `stocklanda_frontend/README.md` for the full walkthrough.
 - **Program hardening:** constrain the settlement `treasury` account to `config.treasury`'s ATA; add `litesvm` negative-path tests (expired-without-buyer, capped payouts, duplicate accounts).
 - **Pyth Hermes** live pricing requires `NEXT_PUBLIC_PYTH_API_KEY`; without it the UI falls back to indicative prices (feed discovery still works).
 - **Post-v1 product scope:** options spreads/straddles, a secondary options market, and auto-rebalancing baskets.
-- **Ops:** transaction history / portfolio P&L view; streaming prices instead of polling.
+- **Ops:** portfolio P&L view; streaming prices instead of polling. (The dashboard's Recent Activity panel already decodes on-chain transaction history into tagged entries.)
 
 ## Contributors
 
